@@ -1,4 +1,4 @@
-"""Sensors for Xiaomi S400 Live."""
+"""Sensors for Xiaomi S400."""
 
 from __future__ import annotations
 
@@ -195,6 +195,16 @@ PERSON_SENSORS = (
             "balanced-muscular", "skinny", "balanced-skinny", "skinny-muscular",
         ],
         value_fn=_body("body_type_name"),
+    ),
+    # Only the scale's stored records carry these.
+    PersonSensorDescription(
+        key="body_score", translation_key="body_score", state_class=SensorStateClass.MEASUREMENT,
+        value_fn=_body("body_score"),
+    ),
+    PersonSensorDescription(
+        key="fat_mass", translation_key="fat_mass", device_class=SensorDeviceClass.WEIGHT,
+        native_unit_of_measurement=UnitOfMass.KILOGRAMS, state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1, value_fn=_body("fat_mass_kg"),
     ),
     PersonSensorDescription(
         key="last_measurement", translation_key="last_measurement",

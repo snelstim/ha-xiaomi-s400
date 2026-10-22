@@ -32,7 +32,30 @@
           "token": "24 znaki hex, np. 0123456789abcdef01234567"
         }
       },
+      "method": {
+        "title": "Token i BLE KEY",
+        "description": "Klucze wagi są zapisane na koncie Xiaomi. Zaloguj się raz, żeby je pobrać, albo wklej je z Xiaomi-cloud-tokens-extractor.",
+        "menu_options": {
+          "cloud": "Zaloguj przez Xiaomi Home (kod QR)",
+          "credentials": "Wpisz klucze ręcznie"
+        }
+      },
+      "reauth": {
+        "title": "Token odrzucony",
+        "description": "Waga odrzuciła token. Dzieje się tak po resecie wagi albo ponownym dodaniu jej w Mi Home. Wyciągnij token jeszcze raz i wklej go tutaj.",
+        "menu_options": {
+          "cloud": "Zaloguj przez Xiaomi Home (kod QR)",
+          "reauth_confirm": "Wpisz klucze ręcznie"
+        }
+      },
       "reconfigure": {
+        "title": "Zmień klucze",
+        "menu_options": {
+          "cloud": "Zaloguj przez Xiaomi Home (kod QR)",
+          "reconfigure_keys": "Wpisz klucze ręcznie"
+        }
+      },
+      "reconfigure_keys": {
         "title": "Zmień klucze",
         "data": {
           "token": "Token",
@@ -42,12 +65,20 @@
           "token": "24 znaki hex, np. 0123456789abcdef01234567",
           "bindkey": "32 znaki hex (BLE KEY z extractora). Opcjonalny, potrzebny tylko do tętna, które waga wysyła w rozgłoszeniu, a nie przez połączenie GATT."
         }
+      },
+      "cloud": {
+        "title": "Zaloguj przez Xiaomi Home (kod QR)"
       }
+    },
+    "progress": {
+      "scan_qr": "Otwórz **Xiaomi Home** na telefonie, stuknij ikonę skanowania, zeskanuj kod i zatwierdź logowanie. Użyj konta, do którego dodana jest waga.\n\n![Kod QR]({qr})\n\nKod się nie wyświetla? [Otwórz stronę logowania]({url}). Klucze są tylko odczytywane, nic nie jest zmieniane na koncie."
     },
     "error": {
       "invalid_mac": "Nieprawidłowy adres MAC (oczekiwany AA:BB:CC:DD:EE:FF)",
       "invalid_token": "Token musi mieć dokładnie 24 znaki hex",
-      "invalid_bindkey": "BLE KEY musi mieć dokładnie 32 znaki hex"
+      "invalid_bindkey": "BLE KEY musi mieć dokładnie 32 znaki hex",
+      "cloud_failed": "Logowanie do Xiaomi nie powiodło się lub wygasło. Spróbuj ponownie albo wpisz klucze ręcznie.",
+      "cloud_not_found": "Zalogowano, ale tej wagi nie ma na tym koncie Xiaomi. Sprawdź, czy to konto, do którego dodano wagę."
     },
     "abort": {
       "already_configured": "Ta waga jest już skonfigurowana",
@@ -66,8 +97,9 @@
       "step": {
         "user": {
           "title": "Osoba",
-          "description": "Przypisz profil użytkownika wagi do osoby. Zważ się raz samodzielnie i sprawdź sensor **ID profilu**, żeby poznać swój numer.",
+          "description": "Przypisz profil użytkownika wagi do osoby. Wybierz kogoś z osób Home Assistanta (użyta zostanie jego nazwa, chyba że wpiszesz inną) albo po prostu wpisz imię. Zważ się raz samodzielnie i sprawdź sensor **ID profilu**, żeby poznać swój numer.",
           "data": {
+            "person_entity": "Osoba w Home Assistant",
             "name": "Nazwa",
             "profile_id": "ID profilu na wadze",
             "sex": "Płeć",
@@ -77,8 +109,9 @@
         },
         "reconfigure": {
           "title": "Osoba",
-          "description": "Przypisz profil użytkownika wagi do osoby. Zważ się raz samodzielnie i sprawdź sensor **ID profilu**, żeby poznać swój numer.",
+          "description": "Przypisz profil użytkownika wagi do osoby. Wybierz kogoś z osób Home Assistanta (użyta zostanie jego nazwa, chyba że wpiszesz inną) albo po prostu wpisz imię. Zważ się raz samodzielnie i sprawdź sensor **ID profilu**, żeby poznać swój numer.",
           "data": {
+            "person_entity": "Osoba w Home Assistant",
             "name": "Nazwa",
             "profile_id": "ID profilu na wadze",
             "sex": "Płeć",
@@ -88,7 +121,9 @@
         }
       },
       "error": {
-        "profile_in_use": "Inna osoba używa już tego ID profilu"
+        "profile_in_use": "Inna osoba używa już tego ID profilu",
+        "name_required": "Wybierz osobę albo wpisz imię",
+        "invalid_birthday": "Wpisz prawidłową datę urodzenia"
       },
       "abort": {
         "reconfigure_successful": "Token zaktualizowany"
@@ -186,6 +221,12 @@
           "balanced-skinny": "Zrównoważona szczupła",
           "skinny-muscular": "Szczupła umięśniona"
         }
+      },
+      "body_score": {
+        "name": "Wynik ciała"
+      },
+      "fat_mass": {
+        "name": "Masa tłuszczu"
       }
     }
   }

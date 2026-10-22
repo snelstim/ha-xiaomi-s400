@@ -28,6 +28,7 @@ from .const import (
     CONF_BINDKEY,
     CONF_BIRTHDAY,
     CONF_HEIGHT,
+    CONF_PERSON_ENTITY,
     CONF_PROFILE_ID,
     CONF_SEX,
     CONF_TOKEN,
@@ -40,10 +41,13 @@ from .const import (
     MIBEACON_UUID,
     POST_MEASUREMENT_PAUSE,
     RECONNECT_AFTER_DROP,
+    STORED_MATCH_WINDOW,
+    STORED_READ_DELAY,
     SUBENTRY_PERSON,
 )
 from .s400 import AuthError, BadTokenError, S400Session, ScaleEvent, UserProfile, compute
 from .s400.mibeacon import AdvReading, decode_advertisement
+from .s400.offline import StoredRecord
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -65,6 +69,7 @@ class Person:
     sex: str
     birthday: str
     height: int
+    person_entity: str | None = None
 
     @property
     def profile(self) -> UserProfile:
@@ -83,6 +88,8 @@ class Measurement:
     heart_rate: int | None = None
     body: dict[str, Any] = field(default_factory=dict)
     raw_fields: list[str] = field(default_factory=list)
+    awaiting_heart_rate: bool = False
+    awaiting_stored: bool = False
 
 
 @dataclass
@@ -134,6 +141,8 @@ class S400Coordinator:
         self._next_attempt = 0.0
         self._failure_backoff = FAILURE_BACKOFF_MIN
         self._last_counter: int | None = None
+        self._stored_synced = False  # first read after start only fills sensors, no events
+        self._seen_records: set[tuple[int, int]] = set()  # (user, timestamp)
         self._stopping = False
         self._load_persons()
 
@@ -150,6 +159,7 @@ class S400Coordinator:
                 sex=d[CONF_SEX],
                 birthday=d[CONF_BIRTHDAY],
                 height=int(d[CONF_HEIGHT]),
+                person_entity=d.get(CONF_PERSON_ENTITY),
             )
 
     # ---- listeners -------------------------------------------------------
@@ -265,6 +275,8 @@ class S400Coordinator:
             await session.login()
             _LOGGER.debug("Logged in to %s, staying connected and waiting for a weigh-in", self.address)
             self._failure_backoff = FAILURE_BACKOFF_MIN
+            if not self._stored_synced:
+                await self._async_read_stored(session)
             outcome = await self._async_pump(session)
             if outcome == "measured":
                 # Let the scale broadcast its result (heart rate, 2nd impedance) before reconnecting.
@@ -286,6 +298,9 @@ class S400Coordinator:
             self.state.last_error = str(err) or type(err).__name__
             next_delay = self._bump_backoff()
         finally:
+            if (m := self.state.last_measurement) and m.awaiting_stored:
+                m.awaiting_stored = False
+                self._maybe_fire_pending()
             if client is not None:
                 try:
                     await client.disconnect()
@@ -307,12 +322,17 @@ class S400Coordinator:
     async def _async_pump(self, session: S400Session) -> str:
         """Stay connected until a measurement completes, the link drops, or we stop."""
         got_final = False
+        final_at = 0.0
         while not self._stopping:
             event = await session.next_event(AFTER_FINAL_GRACE if got_final else IDLE_CHECK)
             if event is None:
                 if session.disconnected:
                     return "measured" if got_final else "disconnected by scale"
                 if got_final:
+                    # The scale stores the weigh-in with its own body composition shortly after.
+                    await asyncio.sleep(max(0.0, final_at + STORED_READ_DELAY - time.monotonic()))
+                    if not session.disconnected:
+                        await self._async_read_stored(session)
                     return "measured"
                 continue  # idle: keep the link open so live weight arrives immediately
             _LOGGER.debug("Event %s fields=%s", event.type, event.fields)
@@ -323,6 +343,7 @@ class S400Coordinator:
                 self._notify()
             elif event.type == "final":
                 got_final = True
+                final_at = time.monotonic()
                 self._handle_final(event)
             else:
                 _LOGGER.debug("Unparsed frame %s fields=%s", event.plaintext.hex(" "), event.fields)
@@ -370,12 +391,12 @@ class S400Coordinator:
         self._notify()
 
         self._fire_pending()  # flush a previous measurement still waiting for heart rate
-        if self.bindkey and measurement.heart_rate is None:
-            # Heart rate arrives in a later advertisement; fire the event once we have it (or give up).
-            self._pending_event = (measurement, person)
-            self._pending_handle = self.hass.loop.call_later(HEART_RATE_WAIT, self._fire_pending)
-        else:
-            self._fire(measurement, person)
+        # Heart rate arrives in a later advertisement and the scale's own composition in its stored
+        # records; fire the event once both are in (or give up).
+        measurement.awaiting_heart_rate = bool(self.bindkey) and measurement.heart_rate is None
+        measurement.awaiting_stored = True
+        self._pending_event = (measurement, person)
+        self._pending_handle = self.hass.loop.call_later(HEART_RATE_WAIT, self._fire_pending)
 
     @callback
     def _check_heart_rate(self, service_info: bluetooth.BluetoothServiceInfoBleak) -> None:
@@ -400,8 +421,70 @@ class S400Coordinator:
             self._notify()
             return
         m.heart_rate = reading.heart_rate
+        m.awaiting_heart_rate = False
         self._notify()
-        self._fire_pending()
+        self._maybe_fire_pending()
+
+    @callback
+    def _maybe_fire_pending(self) -> None:
+        if self._pending_event is None:
+            return
+        m = self._pending_event[0]
+        if not m.awaiting_heart_rate and not m.awaiting_stored:
+            self._fire_pending()
+
+    # ---- stored weigh-ins ------------------------------------------------
+
+    async def _async_read_stored(self, session: S400Session) -> None:
+        try:
+            records = await session.request_offline_data()
+        except (BleakError, TimeoutError, RuntimeError) as err:
+            _LOGGER.debug("Reading stored weigh-ins from %s failed: %s", self.address, err)
+            records = []
+        else:
+            self._apply_records(records, fire=self._stored_synced)
+            self._stored_synced = True
+        if (m := self.state.last_measurement) and m.awaiting_stored:
+            m.awaiting_stored = False
+            self._maybe_fire_pending()
+
+    @callback
+    def _apply_records(self, records: list[StoredRecord], fire: bool) -> None:
+        """Merge the scale's own evaluation into matching measurements; backfill missed weigh-ins."""
+        last = self.state.last_measurement
+        for record in sorted(records, key=lambda r: r.timestamp):
+            key = (record.user, record.timestamp)
+            if key in self._seen_records:
+                continue
+            self._seen_records.add(key)
+            _LOGGER.debug("Stored weigh-in %s", record.raw)
+            if (
+                last is not None
+                and last.weight_kg is not None
+                and abs(last.weight_kg - record.weight_kg) < 0.15
+                and abs(last.measured_at.timestamp() - record.timestamp) < STORED_MATCH_WINDOW
+            ):
+                last.body = {**last.body, **record.body}
+                continue
+            # A weigh-in we didn't see live (e.g. Home Assistant was offline or out of range).
+            person = self.persons.get(record.user)
+            if person is None:
+                continue
+            current = self.person_measurements.get(person.subentry_id)
+            if current is not None and current.measured_at.timestamp() >= record.timestamp:
+                continue
+            measurement = Measurement(
+                profile_id=record.user,
+                weight_kg=record.weight_kg,
+                impedance_ohm=record.impedance_ohm,
+                impedance_low_ohm=record.impedance_low_ohm,
+                measured_at=dt_util.utc_from_timestamp(record.timestamp),
+                body=dict(record.body),
+            )
+            self.person_measurements[person.subentry_id] = measurement
+            if fire:
+                self._fire(measurement, person, stored=True)
+        self._notify()
 
     @callback
     def _fire_pending(self) -> None:
@@ -415,18 +498,20 @@ class S400Coordinator:
         self._fire(*pending)
 
     @callback
-    def _fire(self, measurement: Measurement, person: Person | None) -> None:
+    def _fire(self, measurement: Measurement, person: Person | None, stored: bool = False) -> None:
         self.hass.bus.async_fire(
             EVENT_MEASUREMENT,
             {
                 "address": self.address,
                 "profile_id": measurement.profile_id,
                 "person": person.name if person else None,
+                "person_entity": person.person_entity if person else None,
                 "weight": measurement.weight_kg,
                 "impedance": measurement.impedance_ohm,
                 "impedance_low": measurement.impedance_low_ohm,
                 "heart_rate": measurement.heart_rate,
                 "measured_at": measurement.measured_at.isoformat(),
+                "stored": stored,
                 **measurement.body,
             },
         )

@@ -1,4 +1,4 @@
-"""Binary sensors for Xiaomi S400 Live."""
+"""Binary sensors for Xiaomi S400."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Xiaomi S400 Live: real-time weight and body composition over BLE GATT."""
+"""Xiaomi S400: real-time weight and body composition over BLE GATT."""
 
 from __future__ import annotations
 

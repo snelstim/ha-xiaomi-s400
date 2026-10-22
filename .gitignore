@@ -5,3 +5,6 @@ __pycache__/
 .ruff_cache/
 credentials*.json
 !credentials.example.json
+
+# Brand images are product photos; kept local, not published
+custom_components/xiaomi_s400/brand/

@@ -6,15 +6,18 @@ import asyncio
 
 import pytest
 
-from custom_components.xiaomi_s400_live.config_flow import normalize_token
-from custom_components.xiaomi_s400_live.coordinator import age_from_birthday
-from custom_components.xiaomi_s400_live.s400 import (
+from custom_components.xiaomi_s400.config_flow import normalize_token
+from custom_components.xiaomi_s400.coordinator import age_from_birthday
+from custom_components.xiaomi_s400.s400 import (
     BadTokenError,
     S400Session,
     UserProfile,
     compute,
     parse_payload,
 )
+
+from custom_components.xiaomi_s400.s400.miot import TYPE_STRING, TYPE_UINT8, build_action, parse_message
+from custom_components.xiaomi_s400.s400.offline import build_request, parse_records
 
 from .fake_scale import FakeScale, csv_plaintext
 
@@ -93,3 +96,61 @@ async def test_disconnect_ends_stream() -> None:
     await session.login()
     asyncio.get_running_loop().call_later(0.05, session.mark_disconnected)
     assert await session.next_event(5) is None
+
+
+# Illustrative record from the forum post (not real data).
+RECORD = (
+    "42,123456789,1,1,750,0,1,1790000000,200,565,580,32,7,170,310,231,700,-10,-50,-40,11,1666,4,38,82,"
+    "753,43,150,600,435,128,5200,4750"
+)
+
+
+def miot_event(siid: int, eiid: int, piid: int, type_: int, value) -> bytes:
+    msg = bytearray(build_action(7, siid, eiid, [(piid, type_, value)]))
+    msg[4] = 0x07  # same layout as an action, different op
+    return bytes(msg)
+
+
+def test_offline_request_bytes() -> None:
+    assert build_request(1) == bytes.fromhex("0e2001000509010001040001100" + "0")
+
+
+def test_parse_miot_event() -> None:
+    msg = parse_message(miot_event(9, 2, 3, TYPE_UINT8, 4))
+    assert (msg.op, msg.siid, msg.iid, msg.values) == (7, 9, 2, {3: 4})
+
+
+def test_parse_records() -> None:
+    socks = RECORD.rsplit(",", 2)[0] + ",0,0"
+    records = parse_records(RECORD + "_" + socks)
+    assert len(records) == 2
+    r = records[0]
+    assert (r.user, r.weight_kg, r.timestamp) == (1, 75.0, 1790000000)
+    assert (r.impedance_ohm, r.impedance_low_ohm) == (520.0, 475.0)
+    assert r.body["fat_percent"] == 20.0
+    assert r.body["fat_mass_kg"] == 15.0
+    assert r.body["bmr_kcal_day"] == 1666
+    assert r.body["body_score"] == 82
+    assert r.body["body_type_name"] == "lack-exercise"
+    assert records[1].impedance_ohm is None
+    assert "fat_percent" not in records[1].body
+
+
+async def test_request_offline_data() -> None:
+    scale = FakeScale(TOKEN)
+    session = S400Session(scale, TOKEN)
+    await session.login()
+
+    def respond(msg: bytes) -> None:
+        assert msg == build_request(1)
+        scale.send_plaintext(bytes.fromhex("0520010006") + b"\x00\x00")
+        scale.send_plaintext(miot_event(9, 2, 3, TYPE_UINT8, 2))
+        scale.send_csv("700,0")  # live frame interleaved: must not be lost
+        scale.send_plaintext(miot_event(9, 1, 1, TYPE_STRING, RECORD + "_" + RECORD.replace("1790000000", "1790000100")))
+
+    scale.on_message = respond
+    records = await session.request_offline_data(timeout=3)
+    assert [r.timestamp for r in records] == [1790000000, 1790000100]
+    # No end-of-reception (siid 9 aiid 2) was sent, so the scale keeps the records.
+    assert len(scale.app_in) == 1
+    assert (await session.next_event(1)).type == "live"

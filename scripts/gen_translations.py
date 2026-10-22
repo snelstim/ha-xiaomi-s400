@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1] / "custom_components" / "xiaomi_s400_live"
+ROOT = Path(__file__).resolve().parents[1] / "custom_components" / "xiaomi_s400"
 
 BODY_TYPES = {
     "en": {
@@ -42,6 +42,13 @@ T = {
         "reauth_title": "Token rejected",
         "reauth_desc": "The scale rejected the login token. This happens after the scale was reset or re-added in Mi Home. Extract the token again and paste it here.",
         "reconf_title": "Change keys",
+        "method_title": "Token and BLE key",
+        "method_desc": "The scale's keys are stored in your Xiaomi account. Log in once to fetch them, or paste them from Xiaomi-cloud-tokens-extractor.",
+        "menu_cloud": "Log in with Xiaomi Home (QR code)",
+        "menu_manual": "Enter keys manually",
+        "scan_qr": "Open **Xiaomi Home** on your phone, tap the scan icon and scan this code, then approve the login. Use the account the scale is added to.\n\n![QR code]({qr})\n\nCode not showing? [Open the login page]({url}). The keys are only read, nothing is changed in your account.",
+        "cloud_failed": "Xiaomi login failed or timed out. Try again, or enter the keys manually.",
+        "cloud_not_found": "Logged in, but this scale isn't in that Xiaomi account. Check you used the account the scale was added to.",
         "invalid_mac": "Invalid MAC address (expected AA:BB:CC:DD:EE:FF)",
         "invalid_token": "Token must be exactly 24 hex characters",
         "already_configured": "This scale is already configured",
@@ -52,7 +59,10 @@ T = {
         "person_add": "Add person",
         "person_reconf": "Edit person",
         "person_title": "Person",
-        "person_desc": "Map a scale user profile to a person. Weigh in alone once and check the **Profile ID** sensor to find which number is yours.",
+        "person_desc": "Map a scale user profile to a person. Pick someone from Home Assistant's people (their name is used unless you type another), or just type a name. Weigh in alone once and check the **Profile ID** sensor to find which number is yours.",
+        "person_entity": "Home Assistant person",
+        "name_required": "Pick a person or enter a name",
+        "invalid_birthday": "Enter a valid date of birth",
         "profile_id": "Scale profile ID",
         "sex": "Sex",
         "birthday": "Date of birth",
@@ -69,6 +79,7 @@ T = {
             "water_percent": "Water", "protein_percent": "Protein", "muscle_mass": "Muscle mass",
             "bone_mass": "Bone mass", "visceral_fat": "Visceral fat", "bmr": "Basal metabolism",
             "metabolic_age": "Metabolic age", "ideal_weight": "Ideal weight", "body_type": "Body type",
+            "body_score": "Body score", "fat_mass": "Fat mass",
         },
     },
     "pl": {
@@ -87,6 +98,13 @@ T = {
         "reauth_title": "Token odrzucony",
         "reauth_desc": "Waga odrzuciła token. Dzieje się tak po resecie wagi albo ponownym dodaniu jej w Mi Home. Wyciągnij token jeszcze raz i wklej go tutaj.",
         "reconf_title": "Zmień klucze",
+        "method_title": "Token i BLE KEY",
+        "method_desc": "Klucze wagi są zapisane na koncie Xiaomi. Zaloguj się raz, żeby je pobrać, albo wklej je z Xiaomi-cloud-tokens-extractor.",
+        "menu_cloud": "Zaloguj przez Xiaomi Home (kod QR)",
+        "menu_manual": "Wpisz klucze ręcznie",
+        "scan_qr": "Otwórz **Xiaomi Home** na telefonie, stuknij ikonę skanowania, zeskanuj kod i zatwierdź logowanie. Użyj konta, do którego dodana jest waga.\n\n![Kod QR]({qr})\n\nKod się nie wyświetla? [Otwórz stronę logowania]({url}). Klucze są tylko odczytywane, nic nie jest zmieniane na koncie.",
+        "cloud_failed": "Logowanie do Xiaomi nie powiodło się lub wygasło. Spróbuj ponownie albo wpisz klucze ręcznie.",
+        "cloud_not_found": "Zalogowano, ale tej wagi nie ma na tym koncie Xiaomi. Sprawdź, czy to konto, do którego dodano wagę.",
         "invalid_mac": "Nieprawidłowy adres MAC (oczekiwany AA:BB:CC:DD:EE:FF)",
         "invalid_token": "Token musi mieć dokładnie 24 znaki hex",
         "already_configured": "Ta waga jest już skonfigurowana",
@@ -97,7 +115,10 @@ T = {
         "person_add": "Dodaj osobę",
         "person_reconf": "Edytuj osobę",
         "person_title": "Osoba",
-        "person_desc": "Przypisz profil użytkownika wagi do osoby. Zważ się raz samodzielnie i sprawdź sensor **ID profilu**, żeby poznać swój numer.",
+        "person_desc": "Przypisz profil użytkownika wagi do osoby. Wybierz kogoś z osób Home Assistanta (użyta zostanie jego nazwa, chyba że wpiszesz inną) albo po prostu wpisz imię. Zważ się raz samodzielnie i sprawdź sensor **ID profilu**, żeby poznać swój numer.",
+        "person_entity": "Osoba w Home Assistant",
+        "name_required": "Wybierz osobę albo wpisz imię",
+        "invalid_birthday": "Wpisz prawidłową datę urodzenia",
         "profile_id": "ID profilu na wadze",
         "sex": "Płeć",
         "birthday": "Data urodzenia",
@@ -114,6 +135,7 @@ T = {
             "water_percent": "Woda", "protein_percent": "Białko", "muscle_mass": "Masa mięśni",
             "bone_mass": "Masa kości", "visceral_fat": "Tłuszcz trzewny", "bmr": "Podstawowa przemiana materii",
             "metabolic_age": "Wiek metaboliczny", "ideal_weight": "Waga idealna", "body_type": "Typ sylwetki",
+            "body_score": "Wynik ciała", "fat_mass": "Masa tłuszczu",
         },
     },
 }
@@ -132,7 +154,7 @@ def build(lang: str) -> dict:
         "title": t["person_title"],
         "description": t["person_desc"],
         "data": {
-            "name": t["name"], "profile_id": t["profile_id"], "sex": t["sex"],
+            "person_entity": t["person_entity"], "name": t["name"], "profile_id": t["profile_id"], "sex": t["sex"],
             "birthday": t["birthday"], "height": t["height"],
         },
     }
@@ -152,12 +174,28 @@ def build(lang: str) -> dict:
                     "data_description": {"token": t["token_desc"], "bindkey": t["bindkey_desc"]},
                 },
                 "reauth_confirm": {"title": t["reauth_title"], "description": t["reauth_desc"], **token_schema},
-                "reconfigure": {"title": t["reconf_title"], **keys_schema},
+                "method": {
+                    "title": t["method_title"], "description": t["method_desc"],
+                    "menu_options": {"cloud": t["menu_cloud"], "credentials": t["menu_manual"]},
+                },
+                "reauth": {
+                    "title": t["reauth_title"], "description": t["reauth_desc"],
+                    "menu_options": {"cloud": t["menu_cloud"], "reauth_confirm": t["menu_manual"]},
+                },
+                "reconfigure": {
+                    "title": t["reconf_title"],
+                    "menu_options": {"cloud": t["menu_cloud"], "reconfigure_keys": t["menu_manual"]},
+                },
+                "reconfigure_keys": {"title": t["reconf_title"], **keys_schema},
+                "cloud": {"title": t["menu_cloud"]},
             },
+            "progress": {"scan_qr": t["scan_qr"]},
             "error": {
                 "invalid_mac": t["invalid_mac"],
                 "invalid_token": t["invalid_token"],
                 "invalid_bindkey": t["invalid_bindkey"],
+                "cloud_failed": t["cloud_failed"],
+                "cloud_not_found": t["cloud_not_found"],
             },
             "abort": {
                 "already_configured": t["already_configured"],
@@ -171,7 +209,8 @@ def build(lang: str) -> dict:
                 "entry_type": t["person_type"],
                 "initiate_flow": {"user": t["person_add"], "reconfigure": t["person_reconf"]},
                 "step": {"user": person_step, "reconfigure": person_step},
-                "error": {"profile_in_use": t["profile_in_use"]},
+                "error": {"profile_in_use": t["profile_in_use"], "name_required": t["name_required"],
+                          "invalid_birthday": t["invalid_birthday"]},
                 "abort": {"reconfigure_successful": t["reconfigure_successful"]},
             }
         },

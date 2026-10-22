@@ -1,0 +1,23 @@
+{
+  "domain": "xiaomi_s400",
+  "name": "Xiaomi S400",
+  "bluetooth": [
+    {
+      "connectable": true,
+      "service_data_uuid": "0000fe95-0000-1000-8000-00805f9b34fb"
+    }
+  ],
+  "codeowners": [
+    "@snelstim"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "bluetooth_adapters"
+  ],
+  "documentation": "https://github.com/snelstim/ha-xiaomi-s400",
+  "integration_type": "device",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/snelstim/ha-xiaomi-s400/issues",
+  "requirements": [],
+  "version": "0.4.0"
+}

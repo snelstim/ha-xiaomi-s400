@@ -1,10 +1,10 @@
-"""Constants for Xiaomi S400 Live."""
+"""Constants for Xiaomi S400."""
 
 from __future__ import annotations
 
 from datetime import timedelta
 
-DOMAIN = "xiaomi_s400_live"
+DOMAIN = "xiaomi_s400"
 
 CONF_TOKEN = "token"
 CONF_BINDKEY = "bindkey"
@@ -12,6 +12,7 @@ CONF_PROFILE_ID = "profile_id"
 CONF_SEX = "sex"
 CONF_BIRTHDAY = "birthday"
 CONF_HEIGHT = "height"
+CONF_PERSON_ENTITY = "person_entity"
 
 SUBENTRY_PERSON = "person"
 
@@ -23,6 +24,10 @@ MIBEACON_UUID = "0000fe95-0000-1000-8000-00805f9b34fb"
 IDLE_CHECK = 60.0
 # Keep the link a little after the final frame in case more data follows.
 AFTER_FINAL_GRACE = 4.0
+# Read the weigh-ins stored on the scale (with its own body composition) this long after the final frame.
+STORED_READ_DELAY = 8.0
+# Accept a stored record as the GATT measurement it belongs to within this many seconds.
+STORED_MATCH_WINDOW = 180
 # After a measurement, stay disconnected so the scale can broadcast heart rate and the 2nd impedance.
 POST_MEASUREMENT_PAUSE = 15.0
 # Reconnect quickly when the scale drops an idle link.

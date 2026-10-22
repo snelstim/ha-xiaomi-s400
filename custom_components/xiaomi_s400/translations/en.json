@@ -32,7 +32,30 @@
           "token": "24 hex characters, e.g. 0123456789abcdef01234567"
         }
       },
+      "method": {
+        "title": "Token and BLE key",
+        "description": "The scale's keys are stored in your Xiaomi account. Log in once to fetch them, or paste them from Xiaomi-cloud-tokens-extractor.",
+        "menu_options": {
+          "cloud": "Log in with Xiaomi Home (QR code)",
+          "credentials": "Enter keys manually"
+        }
+      },
+      "reauth": {
+        "title": "Token rejected",
+        "description": "The scale rejected the login token. This happens after the scale was reset or re-added in Mi Home. Extract the token again and paste it here.",
+        "menu_options": {
+          "cloud": "Log in with Xiaomi Home (QR code)",
+          "reauth_confirm": "Enter keys manually"
+        }
+      },
       "reconfigure": {
+        "title": "Change keys",
+        "menu_options": {
+          "cloud": "Log in with Xiaomi Home (QR code)",
+          "reconfigure_keys": "Enter keys manually"
+        }
+      },
+      "reconfigure_keys": {
         "title": "Change keys",
         "data": {
           "token": "Token",
@@ -42,12 +65,20 @@
           "token": "24 hex characters, e.g. 0123456789abcdef01234567",
           "bindkey": "32 hex characters (BLE KEY from the extractor). Optional, only needed for heart rate, which the scale sends in its broadcast instead of the GATT stream."
         }
+      },
+      "cloud": {
+        "title": "Log in with Xiaomi Home (QR code)"
       }
+    },
+    "progress": {
+      "scan_qr": "Open **Xiaomi Home** on your phone, tap the scan icon and scan this code, then approve the login. Use the account the scale is added to.\n\n![QR code]({qr})\n\nCode not showing? [Open the login page]({url}). The keys are only read, nothing is changed in your account."
     },
     "error": {
       "invalid_mac": "Invalid MAC address (expected AA:BB:CC:DD:EE:FF)",
       "invalid_token": "Token must be exactly 24 hex characters",
-      "invalid_bindkey": "BLE key must be exactly 32 hex characters"
+      "invalid_bindkey": "BLE key must be exactly 32 hex characters",
+      "cloud_failed": "Xiaomi login failed or timed out. Try again, or enter the keys manually.",
+      "cloud_not_found": "Logged in, but this scale isn't in that Xiaomi account. Check you used the account the scale was added to."
     },
     "abort": {
       "already_configured": "This scale is already configured",
@@ -66,8 +97,9 @@
       "step": {
         "user": {
           "title": "Person",
-          "description": "Map a scale user profile to a person. Weigh in alone once and check the **Profile ID** sensor to find which number is yours.",
+          "description": "Map a scale user profile to a person. Pick someone from Home Assistant's people (their name is used unless you type another), or just type a name. Weigh in alone once and check the **Profile ID** sensor to find which number is yours.",
           "data": {
+            "person_entity": "Home Assistant person",
             "name": "Name",
             "profile_id": "Scale profile ID",
             "sex": "Sex",
@@ -77,8 +109,9 @@
         },
         "reconfigure": {
           "title": "Person",
-          "description": "Map a scale user profile to a person. Weigh in alone once and check the **Profile ID** sensor to find which number is yours.",
+          "description": "Map a scale user profile to a person. Pick someone from Home Assistant's people (their name is used unless you type another), or just type a name. Weigh in alone once and check the **Profile ID** sensor to find which number is yours.",
           "data": {
+            "person_entity": "Home Assistant person",
             "name": "Name",
             "profile_id": "Scale profile ID",
             "sex": "Sex",
@@ -88,7 +121,9 @@
         }
       },
       "error": {
-        "profile_in_use": "Another person already uses this profile ID"
+        "profile_in_use": "Another person already uses this profile ID",
+        "name_required": "Pick a person or enter a name",
+        "invalid_birthday": "Enter a valid date of birth"
       },
       "abort": {
         "reconfigure_successful": "Token updated"
@@ -186,6 +221,12 @@
           "balanced-skinny": "Balanced skinny",
           "skinny-muscular": "Skinny muscular"
         }
+      },
+      "body_score": {
+        "name": "Body score"
+      },
+      "fat_mass": {
+        "name": "Fat mass"
       }
     }
   }

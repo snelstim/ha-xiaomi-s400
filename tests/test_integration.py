@@ -13,7 +13,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.xiaomi_s400_live.const import (
+from custom_components.xiaomi_s400.const import (
     CONF_BIRTHDAY,
     CONF_HEIGHT,
     CONF_PROFILE_ID,
@@ -35,8 +35,8 @@ FINAL_DAVE = "0,0,1,909,1,2,1760607100," + ",".join(["0"] * 23) + ",4890,4413"
 def no_bluetooth():
     """Stub HA bluetooth so tests don't need a real adapter."""
     with (
-        patch("custom_components.xiaomi_s400_live.coordinator.bluetooth.async_register_callback", return_value=lambda: None),
-        patch("custom_components.xiaomi_s400_live.config_flow.async_discovered_service_info", return_value=[]),
+        patch("custom_components.xiaomi_s400.coordinator.bluetooth.async_register_callback", return_value=lambda: None),
+        patch("custom_components.xiaomi_s400.config_flow.async_discovered_service_info", return_value=[]),
     ):
         yield
 
@@ -49,17 +49,68 @@ async def test_user_flow(hass: HomeAssistant) -> None:
     assert result["errors"] == {CONF_ADDRESS: "invalid_mac"}
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_ADDRESS: ADDRESS.lower()})
+    assert result["type"] is FlowResultType.MENU
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "credentials"})
     assert result["step_id"] == "credentials"
 
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_TOKEN: "zz"})
     assert result["errors"] == {CONF_TOKEN: "invalid_token"}
 
-    with patch("custom_components.xiaomi_s400_live.async_setup_entry", return_value=True):
+    with patch("custom_components.xiaomi_s400.async_setup_entry", return_value=True):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {CONF_TOKEN: TOKEN_HEX.upper(), CONF_NAME: "Waga"}
         )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == {CONF_ADDRESS: ADDRESS, CONF_NAME: "Waga", CONF_TOKEN: TOKEN_HEX, "bindkey": None}
+
+
+async def test_cloud_login_flow(hass: HomeAssistant) -> None:
+    from custom_components.xiaomi_s400.cloud import CloudDevice
+
+    scanned = asyncio.Event()
+
+    class FakeCloud:
+        qr_image_url = "https://example.invalid/qr.png"
+        login_url = "https://example.invalid/login"
+
+        def __init__(self, _session) -> None:
+            pass
+
+        async def start_qr_login(self) -> None:
+            pass
+
+        async def wait_for_scan(self) -> None:
+            await scanned.wait()
+
+        async def find_devices(self, servers=None):
+            return [
+                CloudDevice("Lamp", "yeelink.light", "11:22:33:44:55:66", "a" * 32, None),
+                CloudDevice("Body Shamer", "yunmai.scales.ms104", ADDRESS, TOKEN_HEX, "ab" * 16),
+            ]
+
+    with patch("custom_components.xiaomi_s400.config_flow.XiaomiCloud", FakeCloud):
+        result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_ADDRESS: ADDRESS})
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "cloud"})
+        assert result["type"] is FlowResultType.SHOW_PROGRESS
+        assert result["description_placeholders"]["qr"] == FakeCloud.qr_image_url
+        scanned.set()
+        await hass.async_block_till_done()
+        result = await hass.config_entries.flow.async_configure(result["flow_id"])
+        assert result["type"] is FlowResultType.FORM and result["step_id"] == "credentials"
+        assert not result["errors"]
+        with patch("custom_components.xiaomi_s400.async_setup_entry", return_value=True):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {CONF_TOKEN: TOKEN_HEX, "bindkey": "ab" * 16, CONF_NAME: "Body Shamer"}
+            )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"]["token"] == TOKEN_HEX and result["data"]["bindkey"] == "ab" * 16
+
+
+def test_cloud_rc4_roundtrip() -> None:
+    from custom_components.xiaomi_s400.cloud import _rc4
+
+    assert _rc4(b"key", _rc4(b"key", b"hello")) == b"hello"
 
 
 def _entry(persons: list[tuple[str, int, str]], bindkey: str | None = None) -> MockConfigEntry:
@@ -96,6 +147,21 @@ async def test_person_subentry_flow(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     assert len(entry.subentries) == 2
 
+    # Picking a Home Assistant person fills in the name.
+    hass.states.async_set("person.tim", "home", {"friendly_name": "Tim"})
+    result = await hass.config_entries.subentries.async_init((entry.entry_id, "person"), context={"source": SOURCE_USER})
+    base = {CONF_SEX: "male", CONF_BIRTHDAY: "1990-01-01", CONF_HEIGHT: 180, CONF_PROFILE_ID: 3}
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], base)
+    assert result["errors"] == {CONF_NAME: "name_required"}
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {**base, "person_entity": "person.tim", CONF_BIRTHDAY: "2999-01-01"}
+    )
+    assert result["errors"] == {CONF_BIRTHDAY: "invalid_birthday"}
+    result = await hass.config_entries.subentries.async_configure(result["flow_id"], {**base, "person_entity": "person.tim"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    tim = next(s for s in entry.subentries.values() if s.title == "Tim")
+    assert tim.data["person_entity"] == "person.tim"
+
 
 async def test_measurement_routed_to_person(hass: HomeAssistant) -> None:
     entry = _entry([("Dave", 1, "male"), ("Asia", 2, "female")])
@@ -107,17 +173,19 @@ async def test_measurement_routed_to_person(hass: HomeAssistant) -> None:
     events = []
     hass.bus.async_listen(EVENT_MEASUREMENT, events.append)
 
-    async def run(final_csv: str, live: list[str]) -> None:
+    async def run(final_csv: str, live: list[str], stored: str = "") -> None:
         scale = FakeScale(bytes.fromhex(TOKEN_HEX))
+        scale.stored = stored
 
         async def fake_connect(*args, **kwargs):
             return scale
 
         scale.disconnect = AsyncMock()
         with (
-            patch("custom_components.xiaomi_s400_live.coordinator.establish_connection", side_effect=fake_connect),
-            patch("custom_components.xiaomi_s400_live.coordinator.close_stale_connections_by_address", AsyncMock()),
-            patch("custom_components.xiaomi_s400_live.coordinator.AFTER_FINAL_GRACE", 0.05),
+            patch("custom_components.xiaomi_s400.coordinator.establish_connection", side_effect=fake_connect),
+            patch("custom_components.xiaomi_s400.coordinator.close_stale_connections_by_address", AsyncMock()),
+            patch("custom_components.xiaomi_s400.coordinator.AFTER_FINAL_GRACE", 0.05),
+            patch("custom_components.xiaomi_s400.coordinator.STORED_READ_DELAY", 0.1),
         ):
             task = hass.async_create_task(coordinator._async_session(object()))
             for _ in range(200):
@@ -154,6 +222,23 @@ async def test_measurement_routed_to_person(hass: HomeAssistant) -> None:
     assert state(f"{ADDRESS}_{asia_sub}_weight") == "61.2"
     assert state(f"{ADDRESS}_{dave_sub}_impedance") == "489.0"
 
+    # The scale's stored record for the same weigh-in replaces the estimated composition.
+    stored = (
+        "7,1,1,1,909,0,1,1760607100,251,620,535,31,12,170,310,297,700,-10,-50,-40,11,1810,4,40,71,"
+        "682,34,228,681,486,155,4890,4413"
+    )
+    await run(FINAL_DAVE, ["909,1"], stored)
+    assert state(f"{ADDRESS}_{dave_sub}_fat_percent") == "25.1"
+    assert state(f"{ADDRESS}_{dave_sub}_body_score") == "71"
+    assert state(f"{ADDRESS}_{dave_sub}_fat_mass") == "22.8"
+    assert events[-1].data["source"] == "scale" and events[-1].data["fat_percent"] == 25.1
+
+    # A weigh-in Home Assistant missed is backfilled from the scale's memory.
+    missed = stored.replace("1760607100", "1760700000").replace(",909,", ",880,", 1)
+    await run(FINAL_ASIA, [], missed)
+    assert state(f"{ADDRESS}_{dave_sub}_weight") == "88.0"
+    assert any(e.data["stored"] and e.data["person"] == "Dave" and e.data["weight"] == 88.0 for e in events)
+
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
@@ -165,7 +250,7 @@ def _hr_adv(profile: int, weight_x10: int, hr: int, imp_x10: int):
 
     from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 
-    from custom_components.xiaomi_s400_live.s400.mibeacon import encrypt_advertisement
+    from custom_components.xiaomi_s400.s400.mibeacon import encrypt_advertisement
 
     packed = weight_x10 | ((hr - 50) << 11) | (imp_x10 << 18)
     obj = struct.pack("<HB", 0x6E16, 9) + struct.pack("<BII", profile, packed, 0)
@@ -177,7 +262,7 @@ def _hr_adv(profile: int, weight_x10: int, hr: int, imp_x10: int):
 
 
 def test_mibeacon_roundtrip() -> None:
-    from custom_components.xiaomi_s400_live.s400.mibeacon import decode_advertisement
+    from custom_components.xiaomi_s400.s400.mibeacon import decode_advertisement
 
     info = _hr_adv(2, 612, 66, 5650)
     r = decode_advertisement(info.service_data["0000fe95-0000-1000-8000-00805f9b34fb"], ADDRESS, BINDKEY)
@@ -196,7 +281,7 @@ async def test_heart_rate_from_advertisement(hass: HomeAssistant) -> None:
     events = []
     hass.bus.async_listen(EVENT_MEASUREMENT, events.append)
 
-    from custom_components.xiaomi_s400_live.s400 import parse_payload
+    from custom_components.xiaomi_s400.s400 import parse_payload
 
     from .fake_scale import csv_plaintext
 
@@ -231,10 +316,11 @@ async def test_stays_connected_until_weigh_in(hass: HomeAssistant) -> None:
         return scale
 
     with (
-        patch("custom_components.xiaomi_s400_live.coordinator.establish_connection", side_effect=fake_connect),
-        patch("custom_components.xiaomi_s400_live.coordinator.close_stale_connections_by_address", AsyncMock()),
-        patch("custom_components.xiaomi_s400_live.coordinator.IDLE_CHECK", 0.02),
-        patch("custom_components.xiaomi_s400_live.coordinator.AFTER_FINAL_GRACE", 0.05),
+        patch("custom_components.xiaomi_s400.coordinator.establish_connection", side_effect=fake_connect),
+        patch("custom_components.xiaomi_s400.coordinator.close_stale_connections_by_address", AsyncMock()),
+        patch("custom_components.xiaomi_s400.coordinator.IDLE_CHECK", 0.02),
+        patch("custom_components.xiaomi_s400.coordinator.AFTER_FINAL_GRACE", 0.05),
+        patch("custom_components.xiaomi_s400.coordinator.STORED_READ_DELAY", 0.1),
     ):
         task = hass.async_create_task(coordinator._async_session(object()))
         for _ in range(300):
@@ -269,8 +355,8 @@ async def test_reconnects_fast_after_scale_drops_link(hass: HomeAssistant) -> No
         return scale
 
     with (
-        patch("custom_components.xiaomi_s400_live.coordinator.establish_connection", side_effect=fake_connect),
-        patch("custom_components.xiaomi_s400_live.coordinator.close_stale_connections_by_address", AsyncMock()),
+        patch("custom_components.xiaomi_s400.coordinator.establish_connection", side_effect=fake_connect),
+        patch("custom_components.xiaomi_s400.coordinator.close_stale_connections_by_address", AsyncMock()),
     ):
         await asyncio.wait_for(coordinator._async_session(object()), 5)
     import time as _t
@@ -282,8 +368,8 @@ async def test_reconnects_fast_after_scale_drops_link(hass: HomeAssistant) -> No
 def test_heart_rate_matched_by_weight() -> None:
     from datetime import UTC, datetime
 
-    from custom_components.xiaomi_s400_live.coordinator import Measurement, _same_weighing
-    from custom_components.xiaomi_s400_live.s400.mibeacon import AdvReading
+    from custom_components.xiaomi_s400.coordinator import Measurement, _same_weighing
+    from custom_components.xiaomi_s400.s400.mibeacon import AdvReading
 
     m = Measurement(profile_id=1, weight_kg=76.0, impedance_ohm=493.0, impedance_low_ohm=445.0,
                     measured_at=datetime.now(UTC))

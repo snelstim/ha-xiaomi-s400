@@ -9,8 +9,8 @@ from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
-from custom_components.xiaomi_s400_live.s400.crypto import derive_login_keys, hmac_sha256
-from custom_components.xiaomi_s400_live.s400.protocol import (
+from custom_components.xiaomi_s400.s400.crypto import derive_login_keys, hmac_sha256
+from custom_components.xiaomi_s400.s400.protocol import (
     AVDTP,
     CFM_LOGIN_ERR,
     CFM_LOGIN_OK,
@@ -21,6 +21,7 @@ from custom_components.xiaomi_s400_live.s400.protocol import (
     RCV_OK,
     RCV_RDY,
     UPNP,
+    VEND1A,
 )
 
 
@@ -37,6 +38,12 @@ def csv_plaintext(csv: str) -> bytes:
     return bytes([len(body) + 12]) + bytes.fromhex("20cc00070801000101000a") + b"\xa0" + body
 
 
+def miot_event(siid: int, eiid: int, piid: int, value: bytes, type_: int) -> bytes:
+    body = bytes([0x07, siid, eiid, 0, 1]) + piid.to_bytes(2, "little")
+    body += (type_ << 12 | len(value)).to_bytes(2, "little") + value
+    return (0x2000 | (4 + len(body))).to_bytes(2, "little") + b"\x01\x00" + body
+
+
 class FakeScale:
     """Bleak-client-like object. Notifications are delivered via the event loop."""
 
@@ -51,6 +58,11 @@ class FakeScale:
         self.cmtp_out: list[bytes] = []
         self.writes: list[tuple[str, bytes]] = []
         self.login_ok = False
+        self.app_in: list[bytes] = []  # decrypted messages written by the app on 0x1A
+        self._rx_expected = 0
+        self._rx_buf = b""
+        self.stored: str = ""  # records string returned by request-offline-data
+        self.on_message: Callable[[bytes], None] | None = self._answer_offline
 
     async def start_notify(self, uuid: str, cb: Callable[[Any, bytearray], None]) -> None:
         self.callbacks[uuid] = cb
@@ -98,6 +110,21 @@ class FakeScale:
                 self.login_ok = self.app_info == expected
                 self._notify(UPNP, CFM_LOGIN_OK if self.login_ok else CFM_LOGIN_ERR)
                 self.state = "ready"
+        elif uuid == VEND1A and len(data) == 6 and data[:3] == b"\x00\x00\x00":
+            self._rx_expected = data[4]
+            self._rx_buf = b""
+            self._notify(VEND1A, RCV_RDY)
+        elif uuid == VEND1A and self._rx_expected:
+            self._rx_buf += data[2:]
+            if data[0] == self._rx_expected:
+                self._rx_expected = 0
+                self._notify(VEND1A, RCV_OK)
+                it, ct = self._rx_buf[:2], self._rx_buf[2:]
+                nonce = self.keys.app_iv + bytes(4) + it + bytes(2)
+                msg = AESCCM(self.keys.app_key, tag_length=4).decrypt(nonce, ct, None)
+                self.app_in.append(msg)
+                if self.on_message:
+                    self.on_message(msg)
         elif uuid == CMTP and data == RCV_RDY and self.cmtp_out:
             for f in frames(self.cmtp_out[0]):
                 self._notify(CMTP, f)
@@ -109,13 +136,26 @@ class FakeScale:
         if self.cmtp_out:
             self._notify(CMTP, bytes([0, 0, 0, 0x06, len(frames(self.cmtp_out[0])), 0]))
 
+    def _answer_offline(self, msg: bytes) -> None:
+        if msg[4:6] != b"\x05\x09":
+            return
+        tid = msg[2:4]
+        self.send_plaintext(b"\x07\x20" + tid + b"\x06\x00\x00")
+        count = self.stored.count("_") + 1 if self.stored else 0
+        self.send_plaintext(miot_event(9, 2, 3, bytes([count]), 0x1))
+        if self.stored:
+            self.send_plaintext(miot_event(9, 1, 1, self.stored.encode(), 0xA))
+
     def send_csv(self, csv: str) -> None:
+        self.send_plaintext(csv_plaintext(csv))
+
+    def send_plaintext(self, plaintext: bytes) -> None:
         """Encrypt and push a CMTP message (header first; frames after RCV_RDY)."""
         assert self.keys is not None
         it = self.iter.to_bytes(2, "little")
         self.iter += 1
         nonce = self.keys.dev_iv + bytes(4) + it + bytes(2)
-        ct = it + AESCCM(self.keys.dev_key, tag_length=4).encrypt(nonce, csv_plaintext(csv), None)
+        ct = it + AESCCM(self.keys.dev_key, tag_length=4).encrypt(nonce, plaintext, None)
         self.cmtp_out.append(ct)
         if len(self.cmtp_out) == 1:
             self._send_header()
