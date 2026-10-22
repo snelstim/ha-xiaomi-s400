@@ -175,7 +175,6 @@ async def test_measurement_routed_to_person(hass: HomeAssistant) -> None:
 
     async def run(final_csv: str, live: list[str], stored: str = "") -> None:
         scale = FakeScale(bytes.fromhex(TOKEN_HEX))
-        scale.stored = stored
 
         async def fake_connect(*args, **kwargs):
             return scale
@@ -192,6 +191,8 @@ async def test_measurement_routed_to_person(hass: HomeAssistant) -> None:
                 await asyncio.sleep(0.01)
                 if scale.state == "ready":
                     break
+            await asyncio.sleep(0.2)  # let the login-time read of stored records finish
+            scale.stored = stored  # the scale stores this weigh-in only once it happens
             for w in live:
                 scale.send_csv(w)
             scale.send_csv(final_csv)
@@ -238,6 +239,13 @@ async def test_measurement_routed_to_person(hass: HomeAssistant) -> None:
     await run(FINAL_ASIA, [], missed)
     assert state(f"{ADDRESS}_{dave_sub}_weight") == "88.0"
     assert any(e.data["stored"] and e.data["person"] == "Dave" and e.data["weight"] == 88.0 for e in events)
+
+    # A weigh-in without impedance (socks) updates weight and BMI but keeps the body composition.
+    no_imp = FINAL_DAVE.replace("1760607100", "1760800000").replace("909", "870").rsplit(",", 2)[0] + ",0,0"
+    await run(no_imp, ["870,1"])
+    assert state(f"{ADDRESS}_{dave_sub}_weight") == "87.0"
+    assert state(f"{ADDRESS}_{dave_sub}_fat_percent") == "25.1"
+    assert state(f"{ADDRESS}_{dave_sub}_body_score") == "71"
 
     assert await hass.config_entries.async_unload(entry.entry_id)
 
@@ -376,3 +384,38 @@ def test_heart_rate_matched_by_weight() -> None:
     # Real log: broadcast said profile 2 while the GATT frame said profile 1 for the same weigh-in.
     assert _same_weighing(AdvReading(2, 76.0, 80, 501.7, 59), m)
     assert not _same_weighing(AdvReading(2, 61.2, 70, 565.0, 60), m)
+
+
+async def test_missed_weigh_in_read_on_reconnect(hass: HomeAssistant) -> None:
+    """A login without any live weigh-in still reads the scale's stored records."""
+    entry = _entry([("Dave", 1, "male")])
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator._stored_synced = True  # not the first read after start: events fire
+    events = []
+    hass.bus.async_listen(EVENT_MEASUREMENT, events.append)
+
+    scale = FakeScale(bytes.fromhex(TOKEN_HEX))
+    scale.disconnect = AsyncMock()
+    scale.stored = (
+        "9,1,1,1,880,0,1,1760900000,251,620,535,31,12,170,310,287,700,-10,-50,-40,11,1810,4,40,71,"
+        "682,34,228,681,486,155,4890,4413"
+    )
+
+    async def fake_connect(*args, disconnected_callback=None, **kwargs):
+        hass.loop.call_later(1.0, disconnected_callback, scale)
+        return scale
+
+    with (
+        patch("custom_components.xiaomi_s400.coordinator.establish_connection", side_effect=fake_connect),
+        patch("custom_components.xiaomi_s400.coordinator.close_stale_connections_by_address", AsyncMock()),
+    ):
+        await asyncio.wait_for(coordinator._async_session(object()), 5)
+    await hass.async_block_till_done()
+    dave = next(s for s in entry.subentries.values() if s.title == "Dave").subentry_id
+    m = coordinator.person_measurements[dave]
+    assert m.weight_kg == 88.0 and m.body["fat_percent"] == 25.1
+    assert len(events) == 1 and events[0].data["stored"] is True
+    assert await hass.config_entries.async_unload(entry.entry_id)

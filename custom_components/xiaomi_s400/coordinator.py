@@ -275,8 +275,8 @@ class S400Coordinator:
             await session.login()
             _LOGGER.debug("Logged in to %s, staying connected and waiting for a weigh-in", self.address)
             self._failure_backoff = FAILURE_BACKOFF_MIN
-            if not self._stored_synced:
-                await self._async_read_stored(session)
+            # Every login: picks up weigh-ins missed while disconnected, if the Xiaomi app hasn't synced them yet.
+            await self._async_read_stored(session)
             outcome = await self._async_pump(session)
             if outcome == "measured":
                 # Let the scale broadcast its result (heart rate, 2nd impedance) before reconnecting.

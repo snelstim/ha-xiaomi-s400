@@ -285,7 +285,9 @@ class PersonSensor(S400Entity, RestoreSensor):
         value = self.entity_description.value_fn(measurement)
         if measurement is self._measurement and value == self._attr_native_value:
             return
-        if measurement is self._measurement and value is None:
+        if value is None:
+            # A weigh-in without impedance (socks, stepped off early) has no body composition:
+            # keep the last known values instead of wiping them.
             return
         self._measurement = measurement
         self._attr_native_value = value
