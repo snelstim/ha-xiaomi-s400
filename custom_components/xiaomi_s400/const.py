@@ -34,6 +34,10 @@ STORED_MATCH_WINDOW = 180
 # After-weigh-in mode: connect this long after the broadcast counter last changed (the scale is
 # done measuring and has stored the record by then).
 AFTER_READ_DELAY = 12.0
+# After-weigh-in mode: check what every Bluetooth radio last heard this often. HA forwards a device's
+# broadcasts from one radio only (switching needs a 16 dB better signal), so the short weigh-in
+# frames a closer proxy hears would otherwise be dropped.
+SCANNER_POLL_INTERVAL = timedelta(seconds=1)
 # After-weigh-in mode: use a broadcast heart rate seen this long before the stored record was read.
 HEART_RATE_MATCH_WINDOW = 120.0
 # After a measurement, stay disconnected so the scale can broadcast heart rate and the 2nd impedance.

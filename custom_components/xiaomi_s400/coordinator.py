@@ -45,6 +45,7 @@ from .const import (
     IDLE_CHECK,
     MIBEACON_UUID,
     POST_MEASUREMENT_PAUSE,
+    SCANNER_POLL_INTERVAL,
     RECONNECT_AFTER_DROP,
     STORED_MATCH_WINDOW,
     STORED_READ_DELAY,
@@ -146,6 +147,7 @@ class S400Coordinator:
         self._next_attempt = 0.0
         self._failure_backoff = FAILURE_BACKOFF_MIN
         self._last_counter: int | None = None
+        self._last_data_by_source: dict[str, bytes] = {}
         self._stored_synced = False  # first read after start only fills sensors, no events
         self._seen_records: set[tuple[int, int]] = set()  # (user, timestamp)
         self._stopping = False
@@ -198,6 +200,12 @@ class S400Coordinator:
         self._unsub.append(
             async_track_time_interval(self.hass, self._async_tick, CONNECT_CHECK_INTERVAL, cancel_on_shutdown=True)
         )
+        if self.mode == MODE_AFTER:
+            self._unsub.append(
+                async_track_time_interval(
+                    self.hass, self._async_poll_scanners, SCANNER_POLL_INTERVAL, cancel_on_shutdown=True
+                )
+            )
 
     async def async_stop(self) -> None:
         self._stopping = True
@@ -218,20 +226,35 @@ class S400Coordinator:
         self, service_info: bluetooth.BluetoothServiceInfoBleak, change: bluetooth.BluetoothChange
     ) -> None:
         data = service_info.service_data.get(MIBEACON_UUID) or b""
+        self._last_data_by_source[service_info.source] = data
+        self._handle_beacon(data, service_info.rssi, service_info.source)
+        self._maybe_connect(service_info.device)
+
+    @callback
+    def _async_poll_scanners(self, _now: Any = None) -> None:
+        """Look at the latest broadcast every radio heard, not only the one HA forwards."""
+        for dev in bluetooth.async_scanner_devices_by_address(self.hass, self.address, connectable=False):
+            data = dev.advertisement.service_data.get(MIBEACON_UUID) or b""
+            source = dev.scanner.source
+            if data and data != self._last_data_by_source.get(source):
+                self._last_data_by_source[source] = data
+                self._handle_beacon(data, dev.advertisement.rssi, source)
+
+    @callback
+    def _handle_beacon(self, data: bytes, rssi: int | None, source: str) -> None:
         counter = data[4] if len(data) >= 5 else None
         if counter is not None and counter != self._last_counter:
             frctrl = data[0] | (data[1] << 8)
             _LOGGER.debug(
-                "Adv %s: counter %s -> %s, object=%s, rssi=%s",
-                self.address, self._last_counter, counter, (frctrl >> 6) & 1, service_info.rssi,
+                "Adv %s: counter %s -> %s, object=%s, rssi=%s via %s",
+                self.address, self._last_counter, counter, (frctrl >> 6) & 1, rssi, source,
             )
             if self.mode == MODE_AFTER and self._last_counter is not None:
                 # A new frame: someone is weighing in. Read the stored record once the scale is done.
                 self._read_due = time.monotonic() + AFTER_READ_DELAY
             self._last_counter = counter
         if self.bindkey:
-            self._check_heart_rate(service_info)
-        self._maybe_connect(service_info.device)
+            self._check_heart_rate(data)
 
     @callback
     def _async_tick(self, _now: Any = None) -> None:
@@ -420,8 +443,7 @@ class S400Coordinator:
         self._pending_handle = self.hass.loop.call_later(HEART_RATE_WAIT, self._fire_pending)
 
     @callback
-    def _check_heart_rate(self, service_info: bluetooth.BluetoothServiceInfoBleak) -> None:
-        data = service_info.service_data.get(MIBEACON_UUID)
+    def _check_heart_rate(self, data: bytes) -> None:
         if not data or self.bindkey is None:
             return
         reading = decode_advertisement(data, self.address, self.bindkey)

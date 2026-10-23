@@ -498,3 +498,36 @@ async def test_after_weigh_in_mode(hass: HomeAssistant) -> None:
     assert coordinator.state.last_profile_id == 2
     assert len(events) == 1 and events[0].data["stored"] is False and events[0].data["heart_rate"] == 66
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_after_mode_hears_weigh_in_via_any_radio(hass: HomeAssistant) -> None:
+    """HA forwards one radio's broadcasts; a weigh-in frame only a closer proxy hears must still count."""
+    import time as _t
+    from types import SimpleNamespace
+
+    entry = _entry([("Dave", 1, "male")])
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options={"mode": "after"})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator._read_due = None
+
+    def radio(source: str, counter: int):
+        adv = SimpleNamespace(
+            service_data={"0000fe95-0000-1000-8000-00805f9b34fb": bytes.fromhex("1059d53b") + bytes([counter])},
+            rssi=-70,
+        )
+        return SimpleNamespace(scanner=SimpleNamespace(source=source), advertisement=adv, ble_device=None)
+
+    heard = [radio("hci0", 0), radio("proxy", 0)]
+    with patch(
+        "custom_components.xiaomi_s400.coordinator.bluetooth.async_scanner_devices_by_address",
+        side_effect=lambda *a, **k: heard,
+    ):
+        coordinator._async_poll_scanners()
+        assert coordinator._read_due is None  # idle baseline
+        heard = [radio("hci0", 0), radio("proxy", 7)]  # only the proxy caught the weigh-in frame
+        coordinator._async_poll_scanners()
+        assert coordinator._read_due is not None and coordinator._read_due > _t.monotonic()
+    assert await hass.config_entries.async_unload(entry.entry_id)

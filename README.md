@@ -85,6 +85,8 @@ The scale only stores its own evaluation of a weigh-in (body composition, body s
 
 **After weigh-in** mode stays disconnected. It watches the scale's broadcasts, and when their frame counter changes (someone is weighing in), it connects about 12 s after the last change, reads the stored weigh-in and disconnects again.
 
+It checks what **every** Bluetooth radio heard, once a second. Home Assistant itself forwards a device's broadcasts from only one radio, and only switches radios when another hears the device more than 16 dB louder. So a proxy right next to the scale would otherwise be ignored in favour of a weaker adapter that misses the short weigh-in broadcasts.
+
 The Xiaomi Home app on a phone nearby can sync and delete the stored weigh-in first. If that happens, the weigh-in is lost to Home Assistant in this mode. Keep the phone's Bluetooth off, or the app closed, while weighing, and open the app afterwards; it still gets the weigh-in, because Home Assistant never deletes it.
 
 ### Finding your profile ID
