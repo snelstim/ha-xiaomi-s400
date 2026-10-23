@@ -130,11 +130,28 @@
       }
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Mode",
+        "description": "The scale only stores its own evaluation (body composition, body score) and broadcasts heart rate when no one is connected during the weigh-in, so pick one:",
+        "data": {
+          "mode": "Mode"
+        }
+      }
+    }
+  },
   "selector": {
     "sex": {
       "options": {
         "male": "Male",
         "female": "Female"
+      }
+    },
+    "mode": {
+      "options": {
+        "live": "Live: stay connected for live weight; body composition is estimated by formula, no body score or heart rate",
+        "after": "After weigh-in: connect about 12 s after each weigh-in; the scale's own body composition, body score and heart rate (no live weight). Keep the Xiaomi app from syncing first"
       }
     }
   },

@@ -25,6 +25,11 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     AFTER_FINAL_GRACE,
+    AFTER_READ_DELAY,
+    CONF_MODE,
+    HEART_RATE_MATCH_WINDOW,
+    MODE_AFTER,
+    MODE_LIVE,
     CONF_BINDKEY,
     CONF_BIRTHDAY,
     CONF_HEIGHT,
@@ -144,6 +149,9 @@ class S400Coordinator:
         self._stored_synced = False  # first read after start only fills sensors, no events
         self._seen_records: set[tuple[int, int]] = set()  # (user, timestamp)
         self._stopping = False
+        self.mode: str = entry.options.get(CONF_MODE, MODE_LIVE)
+        # After-weigh-in mode: when to connect and read the stored records (None = nothing to read).
+        self._read_due: float | None = time.monotonic() if self.mode == MODE_AFTER else None
         self._load_persons()
 
     def _load_persons(self) -> None:
@@ -217,6 +225,9 @@ class S400Coordinator:
                 "Adv %s: counter %s -> %s, object=%s, rssi=%s",
                 self.address, self._last_counter, counter, (frctrl >> 6) & 1, service_info.rssi,
             )
+            if self.mode == MODE_AFTER and self._last_counter is not None:
+                # A new frame: someone is weighing in. Read the stored record once the scale is done.
+                self._read_due = time.monotonic() + AFTER_READ_DELAY
             self._last_counter = counter
         if self.bindkey:
             self._check_heart_rate(service_info)
@@ -235,6 +246,8 @@ class S400Coordinator:
         if self._stopping or (self._task and not self._task.done()):
             return
         if time.monotonic() < self._next_attempt:
+            return
+        if self.mode == MODE_AFTER and (self._read_due is None or time.monotonic() < self._read_due):
             return
         _LOGGER.debug("Connecting to %s", self.address)
         self._task = self.entry.async_create_background_task(
@@ -273,8 +286,16 @@ class S400Coordinator:
             self._notify()
 
             await session.login()
-            _LOGGER.debug("Logged in to %s, staying connected and waiting for a weigh-in", self.address)
             self._failure_backoff = FAILURE_BACKOFF_MIN
+            if self.mode == MODE_AFTER:
+                _LOGGER.debug("Logged in to %s, reading stored weigh-ins", self.address)
+                if await self._async_read_stored(session):
+                    self._read_due = None
+                    next_delay = 0.0
+                else:
+                    next_delay = self._bump_backoff()
+                return
+            _LOGGER.debug("Logged in to %s, staying connected and waiting for a weigh-in", self.address)
             # Every login: picks up weigh-ins missed while disconnected, if the Xiaomi app hasn't synced them yet.
             await self._async_read_stored(session)
             outcome = await self._async_pump(session)
@@ -410,6 +431,8 @@ class S400Coordinator:
         if reading.heart_rate is not None:
             self.state.heart_rate = reading.heart_rate
             self._last_adv_hr = (time.monotonic(), reading)
+        if self.mode == MODE_AFTER and reading.weight_kg:
+            self.state.live_weight = reading.weight_kg
         m = self.state.last_measurement
         if (
             reading.heart_rate is None
@@ -435,18 +458,20 @@ class S400Coordinator:
 
     # ---- stored weigh-ins ------------------------------------------------
 
-    async def _async_read_stored(self, session: S400Session) -> None:
+    async def _async_read_stored(self, session: S400Session) -> bool:
+        ok = False
         try:
             records = await session.request_offline_data()
         except (BleakError, TimeoutError, RuntimeError) as err:
             _LOGGER.debug("Reading stored weigh-ins from %s failed: %s", self.address, err)
-            records = []
         else:
             self._apply_records(records, fire=self._stored_synced)
             self._stored_synced = True
+            ok = True
         if (m := self.state.last_measurement) and m.awaiting_stored:
             m.awaiting_stored = False
             self._maybe_fire_pending()
+        return ok
 
     @callback
     def _apply_records(self, records: list[StoredRecord], fire: bool) -> None:
@@ -466,25 +491,52 @@ class S400Coordinator:
             ):
                 last.body = {**last.body, **record.body}
                 continue
-            # A weigh-in we didn't see live (e.g. Home Assistant was offline or out of range).
+            # A weigh-in we didn't see live (e.g. Home Assistant was offline or out of range), or
+            # every weigh-in in after-weigh-in mode.
+            if self.mode == MODE_AFTER and not self._is_old(record):
+                self._set_last(self._record_measurement(record))
             person = self.persons.get(record.user)
             if person is None:
                 continue
             current = self.person_measurements.get(person.subentry_id)
             if current is not None and current.measured_at.timestamp() >= record.timestamp:
                 continue
-            measurement = Measurement(
-                profile_id=record.user,
-                weight_kg=record.weight_kg,
-                impedance_ohm=record.impedance_ohm,
-                impedance_low_ohm=record.impedance_low_ohm,
-                measured_at=dt_util.utc_from_timestamp(record.timestamp),
-                body=dict(record.body),
-            )
+            measurement = self._record_measurement(record)
             self.person_measurements[person.subentry_id] = measurement
             if fire:
-                self._fire(measurement, person, stored=True)
+                self._fire(measurement, person, stored=self.mode != MODE_AFTER or self._is_old(record))
         self._notify()
+
+    @staticmethod
+    def _is_old(record: StoredRecord) -> bool:
+        """A record from before the last few minutes: backfilled rather than just measured."""
+        return dt_util.utcnow().timestamp() - record.timestamp > 600
+
+    def _record_measurement(self, record: StoredRecord) -> Measurement:
+        measurement = Measurement(
+            profile_id=record.user,
+            weight_kg=record.weight_kg,
+            impedance_ohm=record.impedance_ohm,
+            impedance_low_ohm=record.impedance_low_ohm,
+            measured_at=dt_util.utc_from_timestamp(record.timestamp),
+            body=dict(record.body),
+            raw_fields=[str(v) for v in record.raw],
+        )
+        # The heart rate only comes in the broadcast, which arrives before we read the record.
+        if self._last_adv_hr and time.monotonic() - self._last_adv_hr[0] < HEART_RATE_MATCH_WINDOW:
+            if _same_weighing(self._last_adv_hr[1], measurement):
+                measurement.heart_rate = self._last_adv_hr[1].heart_rate
+        return measurement
+
+    @callback
+    def _set_last(self, measurement: Measurement) -> None:
+        """Update the scale-level sensors from a measurement read from the scale's memory."""
+        if self.state.last_measurement and self.state.last_measurement.measured_at >= measurement.measured_at:
+            return
+        self.state.last_measurement = measurement
+        self.state.last_profile_id = measurement.profile_id
+        self.state.live_weight = measurement.weight_kg
+        self.state.last_raw_fields = measurement.raw_fields
 
     @callback
     def _fire_pending(self) -> None:

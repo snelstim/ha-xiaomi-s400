@@ -19,6 +19,7 @@ from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
     ConfigSubentryFlow,
+    OptionsFlow,
     SubentryFlowResult,
 )
 from homeassistant.const import CONF_ADDRESS, CONF_NAME
@@ -32,12 +33,15 @@ from .const import (
     CONF_BINDKEY,
     CONF_BIRTHDAY,
     CONF_HEIGHT,
+    CONF_MODE,
     CONF_PERSON_ENTITY,
     CONF_PROFILE_ID,
     CONF_SEX,
     CONF_TOKEN,
     DOMAIN,
     MIBEACON_UUID,
+    MODE_AFTER,
+    MODE_LIVE,
     S400_PRODUCT_IDS,
     SUBENTRY_PERSON,
 )
@@ -95,6 +99,11 @@ class S400ConfigFlow(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_supported_subentry_types(cls, config_entry: ConfigEntry) -> dict[str, type[ConfigSubentryFlow]]:
         return {SUBENTRY_PERSON: PersonSubentryFlow}
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return S400OptionsFlow()
 
     async def async_step_bluetooth(self, discovery_info: BluetoothServiceInfoBleak) -> ConfigFlowResult:
         if not is_s400(discovery_info):
@@ -367,3 +376,25 @@ class PersonSubentryFlow(ConfigSubentryFlow):
                 return self.async_update_and_abort(self._get_entry(), subentry, title=name, data=data)
         defaults = user_input or {CONF_NAME: subentry.title, **subentry.data}
         return self.async_show_form(step_id="reconfigure", data_schema=_person_schema(defaults), errors=errors)
+
+
+class S400OptionsFlow(OptionsFlow):
+    """Choose between live weight and the scale's own evaluation after each weigh-in."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_MODE, default=self.config_entry.options.get(CONF_MODE, MODE_LIVE)):
+                        selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=[MODE_LIVE, MODE_AFTER], translation_key="mode",
+                                mode=selector.SelectSelectorMode.LIST,
+                            )
+                        ),
+                }
+            ),
+        )

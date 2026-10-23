@@ -419,3 +419,82 @@ async def test_missed_weigh_in_read_on_reconnect(hass: HomeAssistant) -> None:
     assert m.weight_kg == 88.0 and m.body["fat_percent"] == 25.1
     assert len(events) == 1 and events[0].data["stored"] is True
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_mode_option(hass: HomeAssistant) -> None:
+    entry = _entry([("Dave", 1, "male")])
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "init"
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"mode": "after"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert entry.options["mode"] == "after"
+    assert entry.runtime_data.mode == "after"  # reloaded with the new mode
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+def _beacon(counter: int):
+    from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+
+    info = MagicMock(spec=BluetoothServiceInfoBleak)
+    info.service_data = {"0000fe95-0000-1000-8000-00805f9b34fb": bytes.fromhex("1059d53b") + bytes([counter])}
+    info.rssi = -60
+    return info
+
+
+async def test_after_weigh_in_mode(hass: HomeAssistant) -> None:
+    import time as _t
+
+    from homeassistant.util import dt as dt_util
+
+    entry = _entry([("Dave", 1, "male"), ("Asia", 2, "female")], bindkey=BINDKEY.hex())
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options={"mode": "after"})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator._stored_synced = True
+    events = []
+    hass.bus.async_listen(EVENT_MEASUREMENT, events.append)
+
+    # Idle: the first counter seen is only a baseline; a change schedules a read ~12 s later.
+    coordinator._read_due = None
+    coordinator._async_on_advertisement(_beacon(5), None)
+    assert coordinator._read_due is None
+    coordinator._async_on_advertisement(_beacon(6), None)
+    assert 10 < coordinator._read_due - _t.monotonic() <= 12
+    assert coordinator._task is None  # not connected while the scale is measuring
+
+    # The heart rate broadcast arrives during the weigh-in.
+    coordinator._async_on_advertisement(_hr_adv(2, 612, 66, 5650), None)
+
+    scale = FakeScale(bytes.fromhex(TOKEN_HEX))
+    scale.disconnect = AsyncMock()
+    now = int(dt_util.utcnow().timestamp())
+    scale.stored = (
+        f"3,1,2,1,612,0,1,{now},281,402,512,22,4,160,300,200,560,-10,-50,-40,11,1310,5,33,84,"
+        "657,36,172,440,313,98,5650,5120"
+    )
+
+    async def fake_connect(*args, **kwargs):
+        return scale
+
+    with (
+        patch("custom_components.xiaomi_s400.coordinator.establish_connection", side_effect=fake_connect),
+        patch("custom_components.xiaomi_s400.coordinator.close_stale_connections_by_address", AsyncMock()),
+    ):
+        await asyncio.wait_for(coordinator._async_session(object()), 5)  # reads and disconnects, no waiting
+    await hass.async_block_till_done()
+
+    assert coordinator._read_due is None
+    scale.disconnect.assert_awaited()
+    asia = next(s for s in entry.subentries.values() if s.title == "Asia").subentry_id
+    m = coordinator.person_measurements[asia]
+    assert (m.weight_kg, m.heart_rate, m.body["fat_percent"], m.body["body_score"]) == (61.2, 66, 28.1, 84)
+    assert coordinator.state.last_measurement is not None and coordinator.state.last_measurement.weight_kg == 61.2
+    assert coordinator.state.last_profile_id == 2
+    assert len(events) == 1 and events[0].data["stored"] is False and events[0].data["heart_rate"] == 66
+    assert await hass.config_entries.async_unload(entry.entry_id)

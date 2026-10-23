@@ -130,11 +130,28 @@
       }
     }
   },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tryb",
+        "description": "Waga zapisuje własną ocenę (skład ciała, wynik) i rozgłasza tętno tylko wtedy, gdy podczas ważenia nikt nie jest połączony, więc wybierz:",
+        "data": {
+          "mode": "Tryb"
+        }
+      }
+    }
+  },
   "selector": {
     "sex": {
       "options": {
         "male": "Mężczyzna",
         "female": "Kobieta"
+      }
+    },
+    "mode": {
+      "options": {
+        "live": "Na żywo: stałe połączenie i waga na żywo; skład ciała szacowany wzorem, bez wyniku ciała i tętna",
+        "after": "Po ważeniu: połączenie ok. 12 s po każdym ważeniu; własny skład ciała wagi, wynik ciała i tętno (bez wagi na żywo). Nie pozwól aplikacji Xiaomi zsynchronizować pierwszej"
       }
     }
   },

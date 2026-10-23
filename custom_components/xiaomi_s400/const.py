@@ -13,6 +13,9 @@ CONF_SEX = "sex"
 CONF_BIRTHDAY = "birthday"
 CONF_HEIGHT = "height"
 CONF_PERSON_ENTITY = "person_entity"
+CONF_MODE = "mode"
+MODE_LIVE = "live"  # stay connected: live weight, formula body composition
+MODE_AFTER = "after"  # connect after each weigh-in: the scale's own body composition and heart rate
 
 SUBENTRY_PERSON = "person"
 
@@ -28,6 +31,11 @@ AFTER_FINAL_GRACE = 4.0
 STORED_READ_DELAY = 8.0
 # Accept a stored record as the GATT measurement it belongs to within this many seconds.
 STORED_MATCH_WINDOW = 180
+# After-weigh-in mode: connect this long after the broadcast counter last changed (the scale is
+# done measuring and has stored the record by then).
+AFTER_READ_DELAY = 12.0
+# After-weigh-in mode: use a broadcast heart rate seen this long before the stored record was read.
+HEART_RATE_MATCH_WINDOW = 120.0
 # After a measurement, stay disconnected so the scale can broadcast heart rate and the 2nd impedance.
 POST_MEASUREMENT_PAUSE = 15.0
 # Reconnect quickly when the scale drops an idle link.

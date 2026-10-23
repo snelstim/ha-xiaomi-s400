@@ -63,6 +63,11 @@ T = {
         "person_entity": "Home Assistant person",
         "name_required": "Pick a person or enter a name",
         "invalid_birthday": "Enter a valid date of birth",
+        "options_title": "Mode",
+        "options_desc": "The scale only stores its own evaluation (body composition, body score) and broadcasts heart rate when no one is connected during the weigh-in, so pick one:",
+        "mode": "Mode",
+        "mode_live": "Live: stay connected for live weight; body composition is estimated by formula, no body score or heart rate",
+        "mode_after": "After weigh-in: connect about 12 s after each weigh-in; the scale's own body composition, body score and heart rate (no live weight). Keep the Xiaomi app from syncing first",
         "profile_id": "Scale profile ID",
         "sex": "Sex",
         "birthday": "Date of birth",
@@ -119,6 +124,11 @@ T = {
         "person_entity": "Osoba w Home Assistant",
         "name_required": "Wybierz osobę albo wpisz imię",
         "invalid_birthday": "Wpisz prawidłową datę urodzenia",
+        "options_title": "Tryb",
+        "options_desc": "Waga zapisuje własną ocenę (skład ciała, wynik) i rozgłasza tętno tylko wtedy, gdy podczas ważenia nikt nie jest połączony, więc wybierz:",
+        "mode": "Tryb",
+        "mode_live": "Na żywo: stałe połączenie i waga na żywo; skład ciała szacowany wzorem, bez wyniku ciała i tętna",
+        "mode_after": "Po ważeniu: połączenie ok. 12 s po każdym ważeniu; własny skład ciała wagi, wynik ciała i tętno (bez wagi na żywo). Nie pozwól aplikacji Xiaomi zsynchronizować pierwszej",
         "profile_id": "ID profilu na wadze",
         "sex": "Płeć",
         "birthday": "Data urodzenia",
@@ -214,7 +224,15 @@ def build(lang: str) -> dict:
                 "abort": {"reconfigure_successful": t["reconfigure_successful"]},
             }
         },
-        "selector": {"sex": {"options": {"male": t["male"], "female": t["female"]}}},
+        "options": {
+            "step": {
+                "init": {"title": t["options_title"], "description": t["options_desc"], "data": {"mode": t["mode"]}}
+            }
+        },
+        "selector": {
+            "sex": {"options": {"male": t["male"], "female": t["female"]}},
+            "mode": {"options": {"live": t["mode_live"], "after": t["mode_after"]}},
+        },
         "entity": entity,
     }
 
