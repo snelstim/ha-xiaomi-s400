@@ -10,6 +10,7 @@ from homeassistant.components.sensor import (
     RestoreSensor,
     SensorDeviceClass,
     SensorEntityDescription,
+    SensorExtraStoredData,
     SensorStateClass,
 )
 from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfMass
@@ -256,6 +257,16 @@ class ScaleSensor(S400Entity, RestoreSensor):
         return self._restored if value is None else value
 
 
+@dataclass
+class PersonSensorExtraStoredData(SensorExtraStoredData):
+    """Restored value plus the unique id of the sensor that saved it."""
+
+    owner: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {**super().as_dict(), "owner": self.owner}
+
+
 class PersonSensor(S400Entity, RestoreSensor):
     """Per-person value; restored after restart, updated only by that person's measurements."""
 
@@ -270,8 +281,19 @@ class PersonSensor(S400Entity, RestoreSensor):
         self._measurement: Measurement | None = None
         self._attr_native_value = None
 
+    @property
+    def extra_restore_state_data(self) -> PersonSensorExtraStoredData:
+        data = super().extra_restore_state_data
+        return PersonSensorExtraStoredData(data.native_value, data.native_unit_of_measurement, self.unique_id)
+
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        if (extra := await self.async_get_last_extra_data()) is None:
+            return
+        owner = extra.as_dict().get("owner")
+        if owner is not None and owner != self.unique_id:
+            # Left behind by a deleted person that had the same entity id: start empty.
+            return
         if (last := await self.async_get_last_sensor_data()) is not None:
             value = last.native_value
             if self.device_class == SensorDeviceClass.TIMESTAMP and isinstance(value, str):
