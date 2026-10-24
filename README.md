@@ -2,7 +2,7 @@
 
 Custom integration for the **Xiaomi Body Composition Scale S400** (MJTZC01YM). It shows your **live weight** while you stand on the scale, and records every weigh-in for the right person, with the **body composition the scale works out itself**.
 
-It talks to the scale over a logged-in Bluetooth connection instead of only listening to its broadcasts, so it works with a local Bluetooth adapter or an **ESPHome Bluetooth proxy**.
+It logs in to the scale over Bluetooth instead of only listening to its broadcasts, and works with a local Bluetooth adapter or an **ESPHome Bluetooth proxy**.
 
 > ⚠️ **Experimental.** The protocol is reverse-engineered and has only been tested on scale firmware `2.1.1_0006`. A firmware update may break it.
 
@@ -30,7 +30,7 @@ It talks to the scale over a logged-in Bluetooth connection instead of only list
 
 ## Requirements
 
-1. **Home Assistant 2025.7** or newer.
+1. **Home Assistant 2025.7** or newer. The integration's icon needs 2026.3 or newer; older versions just show a placeholder.
 2. The scale added to the **Xiaomi Home** app, with at least one weigh-in done there.
 3. A Bluetooth adapter in range of the scale, or an **ESP32 running an ESPHome Bluetooth proxy in active mode**:
    ```yaml
@@ -44,7 +44,7 @@ It talks to the scale over a logged-in Bluetooth connection instead of only list
    bluetooth_proxy:
      active: true
    ```
-   Active mode is required because the integration opens a connection to the scale. It keeps one of the proxy's connection slots (usually 3) busy most of the time.
+   Active mode is required because the integration opens a connection to the scale. In live mode it keeps one of the proxy's connection slots (usually 3) busy most of the time; in after-weigh-in mode only for a few seconds per weigh-in. Put the proxy close to the scale. The scale's signal is weak, especially with someone standing on it.
 
 ## Installation
 
@@ -77,7 +77,7 @@ The scale only stores its own evaluation of a weigh-in (body composition, body s
 | | **Live** (default) | **After weigh-in** |
 |---|---|---|
 | Live weight while standing | ✅ | only with a BLE key, from the broadcast |
-| Result appears | as soon as the weight is stable | about 12 s after the scale finishes |
+| Result appears | as soon as the weight is stable | typically 15–45 s after you step off |
 | Body composition | formula estimate from weight, impedance and profile | **the scale's own values**, the same as the Xiaomi app |
 | Body score, fat mass | ❌ | ✅ |
 | Heart rate | ❌ in practice | ✅ from the stored weigh-in; the BLE key adds the broadcast as a backup |
@@ -108,7 +108,7 @@ The token changes when the scale is reset or removed and re-added in Xiaomi Home
 | Entity | Notes |
 |---|---|
 | Live weight | updates while you stand on the scale |
-| On scale, Stable | binary sensors |
+| On scale, Stable | binary sensors (live mode) |
 | Weight, Impedance, Impedance low, Heart rate, Profile ID, Last measurement | the last weigh-in from anyone |
 | Connected, Last error | diagnostic |
 | Raw final frame | diagnostic, disabled by default |
@@ -129,9 +129,9 @@ These update **only** when that person's profile is measured, and keep their val
 | `profile_id`, `weight`, `impedance`, `impedance_low`, `heart_rate`, `measured_at` | the measurement |
 | `bmi`, `fat_percent`, `muscle_mass_kg`, `water_percent`, … | body composition |
 | `source` | `scale` when the values came from the scale's stored weigh-in |
-| `stored` | `true` for a weigh-in backfilled from the scale's memory |
+| `stored` | `true` for an older weigh-in backfilled from the scale's memory (e.g. taken while Home Assistant was offline); `false` for the weigh-in that just happened |
 
-The event waits for the scale's stored weigh-in, and for the heart rate when a BLE key is set, but never longer than 20 s.
+In live mode, the event waits for the scale's stored weigh-in, and for the heart rate when a BLE key is set, but never longer than 20 s. In after-weigh-in mode it fires as soon as the stored weigh-in has been read.
 
 Example: notify the right person.
 
@@ -185,15 +185,15 @@ Please attach a debug log when reporting issues.
 
 - Only the S400 (`yunmai.scales.ms104`) on firmware `2.1.1_0006` has been tested.
 - **Body type** in after-weigh-in mode is the scale's own value, named as in Xiaomi Home's chart: Lean, Underweight, Invisibly obese, Slim & muscular, Slim, Fit, Muscular, Overweight, Athletic and Obese. The scale sends these as −5 to 4. The table comes from the Xiaomi Home plugin for this scale (v31) and is confirmed for Obese. In live mode, body type is the formula's estimate, using the older Mi Fit names.
-- The body-type names for the scale's own body-type values are assumed to follow the Mi Fit order. This is unverified.
 - The QR login is the only in-app login. Xiaomi's password login can require captchas and email codes, so use the extractor if QR login isn't possible.
 
 ## Credits
 
-This is a fork of [nanocortex/ha-xiaomi-s400-live](https://github.com/nanocortex/ha-xiaomi-s400-live). It adds stored weigh-ins with the scale's own body composition, QR-code login, Home Assistant person linking and a typed date-of-birth field, and renames the integration to `xiaomi_s400`.
+This is a fork of [nanocortex/ha-xiaomi-s400-live](https://github.com/nanocortex/ha-xiaomi-s400-live). It adds after-weigh-in mode with the scale's own body composition, body score, heart rate and body type, backfilling of missed weigh-ins, listening on every Bluetooth radio, QR-code login, Home Assistant person linking and a typed date-of-birth field, and renames the integration to `xiaomi_s400`.
 
 - Live protocol and decoders: [nokistin/xiaomi-s400-live](https://github.com/nokistin/xiaomi-s400-live) (Apache-2.0), vendored and adapted in `custom_components/xiaomi_s400/s400/`
 - Mi Home v2 login: [dnandha/miauth](https://github.com/dnandha/miauth) (Apache-2.0)
+- Body-type names: the Xiaomi Home plugin for `yunmai.scales.ms104` (v31); only the value-to-name table is used, no plugin code is included
 - Stored weigh-in protocol and field map: a [Home Assistant community thread](https://community.home-assistant.io/t/how-to-add-xiaomi-mijia-scale-s400-model-mjtzc01ym-into-home-assisstant/662778)
 - Xiaomi cloud QR login: [PiotrMachowski/Xiaomi-cloud-tokens-extractor](https://github.com/PiotrMachowski/Xiaomi-cloud-tokens-extractor) (MIT), ported to async in `cloud.py`
 - Fallback body composition formulas: [mnm-matin/miscale](https://github.com/mnm-matin/miscale) (MIT)
