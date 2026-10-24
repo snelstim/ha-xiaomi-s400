@@ -236,4 +236,5 @@ class S400Session:
             else:
                 self._pending.append(event)
         _LOGGER.debug("Stored records: expected=%s parsed=%d", expected, len(records))
+        self.last_offline_expected = expected
         return records

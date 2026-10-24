@@ -557,3 +557,29 @@ async def test_unidentified_weigh_in_matched_by_weight(hass: HomeAssistant) -> N
     assert coordinator.person_measurements[asia_sub].weight_kg == pytest.approx(61.2)
     assert dave_sub not in coordinator.person_measurements
     assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_unidentified_stored_record_matched_by_weight(hass: HomeAssistant) -> None:
+    """Real user-0 record: the scale evaluated nothing, so the matched person gets an estimate."""
+    entry = _entry([("Dave", 1, "male"), ("Asia", 2, "female")])
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator._last_session_end = 10**12
+    dave_sub = next(s for s in entry.subentries.values() if s.title == "Dave").subentry_id
+    asia_sub = next(s for s in entry.subentries.values() if s.title == "Asia").subentry_id
+    coordinator.restored_weights = {dave_sub: 101.8, asia_sub: 82.3}
+
+    from custom_components.xiaomi_s400.s400.offline import parse_records
+
+    raw = "6,0,0,1,800,0,2,1792872435," + ",".join(["0"] * 23) + ",5100,4580"
+    coordinator._apply_records(parse_records(raw), fire=False)
+    m = coordinator.person_measurements[asia_sub]
+    assert m.weight_kg == pytest.approx(80.0)
+    assert m.profile_id == 2
+    assert "body_type" not in m.body or m.body.get("source") != "scale"
+    assert m.body.get("fat_percent")
+    assert dave_sub not in coordinator.person_measurements
+    assert coordinator.state.last_measurement.profile_id == 2
+    assert await hass.config_entries.async_unload(entry.entry_id)

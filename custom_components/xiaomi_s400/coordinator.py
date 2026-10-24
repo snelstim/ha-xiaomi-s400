@@ -49,6 +49,7 @@ from .const import (
     RECONNECT_AFTER_DROP,
     STORED_MATCH_WINDOW,
     STORED_READ_DELAY,
+    STORED_READ_RETRIES,
     SUBENTRY_PERSON,
     WEIGHT_MATCH_KG,
 )
@@ -503,6 +504,13 @@ class S400Coordinator:
         ok = False
         try:
             records = await session.request_offline_data()
+            for _ in range(STORED_READ_RETRIES):
+                expected = getattr(session, "last_offline_expected", None)
+                if not expected or len(records) >= expected:
+                    break
+                # A message that failed to decrypt loses its records; the scale sends them all again.
+                _LOGGER.debug("Got %d of %d stored weigh-ins, reading again", len(records), expected)
+                records = await session.request_offline_data()
         except (BleakError, TimeoutError, RuntimeError) as err:
             _LOGGER.debug("Reading stored weigh-ins from %s failed: %s", self.address, err)
         else:
@@ -537,15 +545,14 @@ class S400Coordinator:
                 continue
             # A weigh-in we didn't see live (e.g. Home Assistant was offline or out of range), or
             # every weigh-in in after-weigh-in mode.
-            if self.mode == MODE_AFTER and not self._is_old(record):
-                self._set_last(self._record_measurement(record))
-            person = self.persons.get(record.user)
+            person = self.persons.get(record.user) if record.user else self._person_by_weight(record.weight_kg)
+            self._set_last(self._record_measurement(record, person))
             if person is None:
                 continue
             current = self.person_measurements.get(person.subentry_id)
             if current is not None and current.measured_at.timestamp() >= record.timestamp:
                 continue
-            measurement = self._record_measurement(record)
+            measurement = self._record_measurement(record, person)
             self.person_measurements[person.subentry_id] = measurement
             if fire:
                 self._fire(measurement, person, stored=self.mode != MODE_AFTER or self._is_old(record))
@@ -556,9 +563,9 @@ class S400Coordinator:
         """A record from before the last few minutes: backfilled rather than just measured."""
         return dt_util.utcnow().timestamp() - record.timestamp > 600
 
-    def _record_measurement(self, record: StoredRecord) -> Measurement:
+    def _record_measurement(self, record: StoredRecord, person: Person | None = None) -> Measurement:
         measurement = Measurement(
-            profile_id=record.user,
+            profile_id=record.user or (person.profile_id if person else 0),
             weight_kg=record.weight_kg,
             impedance_ohm=record.impedance_ohm,
             impedance_low_ohm=record.impedance_low_ohm,
@@ -567,6 +574,14 @@ class S400Coordinator:
             raw_fields=[str(v) for v in record.raw],
             heart_rate=record.heart_rate,
         )
+        # The scale evaluates nothing for a weigh-in it didn't recognise; estimate it for the person
+        # it was matched to by weight instead.
+        impedance = record.impedance_ohm or record.impedance_low_ohm
+        if not record.user and person and impedance:
+            try:
+                measurement.body = compute(record.weight_kg, impedance, person.profile)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning("Body composition failed: %s", err)
         # Fall back to the broadcast heart rate, which arrives before we read the record.
         if measurement.heart_rate is None and self._last_adv_hr and time.monotonic() - self._last_adv_hr[0] < HEART_RATE_MATCH_WINDOW:
             if _same_weighing(self._last_adv_hr[1], measurement):

@@ -88,7 +88,10 @@ def parse_record(text: str) -> StoredRecord | None:
         "protein_mass_kg": _div10(f[30]),
     }
     # Without impedance (socks) the scale only knows weight and BMI; drop the zeroed composition.
-    if not f[31] and not f[32]:
+    # The same when it didn't recognise anyone (user 0): it evaluates nothing.
+    if not f[2]:
+        body = {}
+    elif not f[31] and not f[32]:
         body = {"bmi": body["bmi"]} if f[15] else {}
     elif f[22] in SCALE_BODY_TYPES:
         body["body_type"] = f[22]

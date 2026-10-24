@@ -98,7 +98,7 @@ The Xiaomi Home app on a phone nearby can sync and delete the stored weigh-in fi
 
 Set the integration to after-weigh-in mode, weigh yourself alone, then read the **Profile ID** sensor on the scale device. That number is your profile on the scale. In live mode it is always 0, because the scale doesn't identify anyone while Home Assistant is connected.
 
-In live mode, a weigh-in goes to the one person whose last weight is within 3 kg of it. If nobody, or more than one person, is that close, it goes to no one (the scale-level sensors still show it). A new person gets their first weigh-in only in after-weigh-in mode, or once a stored weigh-in has been backfilled for them.
+A weigh-in the scale didn't recognise (always the case in live mode, and sometimes for a new person in after-weigh-in mode, saved as profile 0) goes to the one person whose last weight is within 3 kg of it, with body composition estimated by formula, since the scale evaluates nothing for it. If nobody, or more than one person, is that close, it goes to no one (the scale-level sensors still show it). A new person therefore needs one recognised weigh-in first.
 
 ### When the token changes
 

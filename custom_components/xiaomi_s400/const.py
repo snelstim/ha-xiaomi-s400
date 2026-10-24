@@ -56,3 +56,5 @@ EVENT_MEASUREMENT = f"{DOMAIN}_measurement"
 HEART_RATE_WAIT = 20.0
 # An unidentified weigh-in goes to the one person whose last weight is within this many kg.
 WEIGHT_MATCH_KG = 3.0
+# Extra attempts when fewer stored weigh-ins arrive than the scale announced.
+STORED_READ_RETRIES = 2
