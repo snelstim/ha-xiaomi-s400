@@ -169,3 +169,19 @@ def test_parse_real_record() -> None:
     assert (b["fat_percent"], b["fat_mass_kg"], b["muscle_mass_kg"], b["body_score"]) == (30.8, 31.6, 67.3, 75)
     assert (b["bmi"], b["bmr_kcal_day"], b["metabolic_age_years"], b["visceral_fat"]) == (31.7, 1906, 38, 18)
     assert b["body_type_name"] == "obese"
+
+
+def test_scale_body_types() -> None:
+    base = RECORD.split(",")
+    names = {}
+    for v in range(-5, 5):
+        f = base.copy()
+        f[22] = str(v)
+        names[v] = parse_records(",".join(f))[0].body["body_type_name"]
+    assert names == {
+        -5: "lean", -4: "underweight", -3: "invisibly-obese", -2: "slim-muscular", -1: "slim",
+        0: "fit", 1: "muscular", 2: "overweight", 3: "athletic", 4: "obese",
+    }
+    f = base.copy()
+    f[22] = "9"
+    assert "body_type_name" not in parse_records(",".join(f))[0].body  # unknown: left out, not guessed

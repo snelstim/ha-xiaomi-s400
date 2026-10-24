@@ -21,7 +21,7 @@ from . import S400ConfigEntry
 from .coordinator import Measurement, Person, S400Coordinator, ScaleState
 from .entity import S400Entity, person_device_info, scale_device_info
 from .s400.body import BODY_TYPE_NAMES
-from .s400.offline import SCALE_BODY_TYPE_MAX, SCALE_BODY_TYPES
+from .s400.offline import SCALE_BODY_TYPES
 
 OHM = "Ω"
 
@@ -192,11 +192,8 @@ PERSON_SENSORS = (
     ),
     PersonSensorDescription(
         key="body_type", translation_key="body_type", device_class=SensorDeviceClass.ENUM,
-        # Formula estimate (Mi Fit names) and the scale's own value (Xiaomi Home names, or type_<n>).
-        options=list(dict.fromkeys(
-            [*BODY_TYPE_NAMES, *SCALE_BODY_TYPES.values(),
-             *(f"type_{n}" for n in range(1, SCALE_BODY_TYPE_MAX + 1))]
-        )),
+        # Formula estimate (Mi Fit names) and the scale's own value (Xiaomi Home names).
+        options=list(dict.fromkeys([*BODY_TYPE_NAMES, *SCALE_BODY_TYPES.values()])),
         value_fn=_body("body_type_name"),
     ),
     # Only the scale's stored records carry these.

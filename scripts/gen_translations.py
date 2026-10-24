@@ -16,12 +16,18 @@ BODY_TYPES = {
         "lack-exercise": "Lack of exercise", "balanced": "Balanced",
         "balanced-muscular": "Balanced muscular", "skinny": "Skinny",
         "balanced-skinny": "Balanced skinny", "skinny-muscular": "Skinny muscular",
+        "lean": "Lean", "underweight": "Underweight", "invisibly-obese": "Invisibly obese",
+        "slim-muscular": "Slim & muscular", "slim": "Slim", "fit": "Fit", "muscular": "Muscular",
+        "athletic": "Athletic",
     },
     "pl": {
         "obese": "Otyłość", "overweight": "Nadwaga", "thick-set": "Krępa",
         "lack-exercise": "Brak ruchu", "balanced": "Zrównoważona",
         "balanced-muscular": "Zrównoważona umięśniona", "skinny": "Szczupła",
         "balanced-skinny": "Zrównoważona szczupła", "skinny-muscular": "Szczupła umięśniona",
+        "lean": "Wychudzona", "underweight": "Niedowaga", "invisibly-obese": "Ukryta otyłość",
+        "slim-muscular": "Szczupła i umięśniona", "slim": "Szczupła", "fit": "Wysportowana",
+        "muscular": "Umięśniona", "athletic": "Atletyczna",
     },
 }
 
@@ -172,10 +178,7 @@ def build(lang: str) -> dict:
     for key, name in t["e"].items():
         platform = "binary_sensor" if key in BINARY else "sensor"
         entity[platform][key] = {"name": name}
-    entity["sensor"]["body_type"]["state"] = {
-        **BODY_TYPES[lang],
-        **{f"type_{n}": ("Typ" if lang == "pl" else "Type") + f" {n}" for n in range(1, 16)},
-    }
+    entity["sensor"]["body_type"]["state"] = BODY_TYPES[lang]
     return {
         "config": {
             "flow_title": t["flow_title"],

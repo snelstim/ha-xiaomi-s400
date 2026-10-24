@@ -22,10 +22,20 @@ PIID_ONLY_UPLOAD_COUNT = 4
 
 RECORD_FIELDS = 33
 
-# The scale's body-type number -> name, as shown in Xiaomi Home's 11-type chart. Only confirmed
-# values are listed; others are reported as "type_<n>" until someone checks them against the app.
-SCALE_BODY_TYPES: dict[int, str] = {4: "obese"}
-SCALE_BODY_TYPE_MAX = 15
+# The scale's body-type value -> name, from the Xiaomi Home plugin for this scale
+# (yunmai.scales.ms104 v31, _getBodyTypeTitle). The chart's two "Overweight" cells are both 2.
+SCALE_BODY_TYPES: dict[int, str] = {
+    -5: "lean",
+    -4: "underweight",
+    -3: "invisibly-obese",
+    -2: "slim-muscular",
+    -1: "slim",
+    0: "fit",
+    1: "muscular",
+    2: "overweight",
+    3: "athletic",
+    4: "obese",
+}
 
 
 def build_request(tid: int) -> bytes:
@@ -80,9 +90,9 @@ def parse_record(text: str) -> StoredRecord | None:
     # Without impedance (socks) the scale only knows weight and BMI; drop the zeroed composition.
     if not f[31] and not f[32]:
         body = {"bmi": body["bmi"]} if f[15] else {}
-    elif 1 <= f[22] <= SCALE_BODY_TYPE_MAX:
+    elif f[22] in SCALE_BODY_TYPES:
         body["body_type"] = f[22]
-        body["body_type_name"] = SCALE_BODY_TYPES.get(f[22], f"type_{f[22]}")
+        body["body_type_name"] = SCALE_BODY_TYPES[f[22]]
     body["source"] = "scale"
     return StoredRecord(
         index=f[0],
