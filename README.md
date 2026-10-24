@@ -10,7 +10,7 @@ It logs in to the scale over Bluetooth instead of only listening to its broadcas
 
 - **Two modes**: *live* (weight on screen while you stand on the scale) or *after weigh-in* (the scale's own full evaluation, including heart rate). See [Modes](#modes).
 - **Live weight** while you stand on the scale (about every 0.3 s), plus *On scale* and *Stable* sensors for automations (live mode).
-- **One device per person.** Each weigh-in goes to the person whose scale profile it was, with no mixing between people.
+- **One device per person.** Each weigh-in goes to the person whose scale profile it was (in live mode, the person it matches by weight).
 - **Body composition from the scale itself** (after-weigh-in mode): fat, muscle, water, protein, bone, visceral fat, BMR, metabolic age, body type, body score and fat mass. These are the values the Xiaomi app shows.
 - **Missed weigh-ins are backfilled.** The scale keeps its weigh-ins in memory, so ones taken while Home Assistant was offline or out of range are picked up later.
 - **Heart rate** (after-weigh-in mode), read from the scale's stored weigh-in.
@@ -79,6 +79,7 @@ The scale only stores its own evaluation of a weigh-in (body composition, body s
 | Live weight while standing | ✅ | only with a BLE key, from the broadcast |
 | Result appears | as soon as the weight is stable | typically 15–45 s after you step off |
 | Body composition | formula estimate from weight, impedance and profile | **the scale's own values**, the same as the Xiaomi app |
+| Who it was | **matched by weight**: the scale can't identify anyone while Home Assistant is connected | the scale's own profile |
 | Body score, fat mass | ❌ | ✅ |
 | Heart rate | ❌ in practice | ✅ from the stored weigh-in; the BLE key adds the broadcast as a backup |
 | Bluetooth connection slot | busy all the time | a few seconds per weigh-in |
@@ -95,7 +96,9 @@ The Xiaomi Home app on a phone nearby can sync and delete the stored weigh-in fi
 
 ### Finding your profile ID
 
-Weigh yourself alone, then read the **Profile ID** sensor on the scale device. That number is your profile on the scale.
+Set the integration to after-weigh-in mode, weigh yourself alone, then read the **Profile ID** sensor on the scale device. That number is your profile on the scale. In live mode it is always 0, because the scale doesn't identify anyone while Home Assistant is connected.
+
+In live mode, a weigh-in goes to the one person whose last weight is within 3 kg of it. If nobody, or more than one person, is that close, it goes to no one (the scale-level sensors still show it). A new person gets their first weigh-in only in after-weigh-in mode, or once a stored weigh-in has been backfilled for them.
 
 ### When the token changes
 

@@ -80,7 +80,9 @@ def parse_payload(plaintext: bytes) -> ScaleEvent:
         imp_low = _int(parts[-1])
         return ScaleEvent(
             type="final",
-            profile_id=_int(parts[2]),
+            # Same layout as a stored record minus its leading field: the user is parts[1] (0 when
+            # the scale didn't recognise anyone, which is always the case while we are connected).
+            profile_id=_int(parts[1]) or None,
             weight_kg=_div10(_int(parts[3])),
             stable=parts[4].strip() == "1",
             timestamp=_int(parts[6]),

@@ -299,6 +299,8 @@ class PersonSensor(S400Entity, RestoreSensor):
             if self.device_class == SensorDeviceClass.TIMESTAMP and isinstance(value, str):
                 value = dt_util.parse_datetime(value)
             self._attr_native_value = value
+            if self.entity_description.key == "weight" and isinstance(value, (int, float)):
+                self.coordinator.restored_weights[self.person.subentry_id] = float(value)
 
     def _handle_update(self) -> None:
         measurement = self.coordinator.person_measurements.get(self.person.subentry_id)

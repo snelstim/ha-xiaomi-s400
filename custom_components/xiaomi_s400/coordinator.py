@@ -50,6 +50,7 @@ from .const import (
     STORED_MATCH_WINDOW,
     STORED_READ_DELAY,
     SUBENTRY_PERSON,
+    WEIGHT_MATCH_KG,
 )
 from .s400 import AuthError, BadTokenError, S400Session, ScaleEvent, UserProfile, compute
 from .s400.mibeacon import AdvReading, decode_advertisement
@@ -141,6 +142,8 @@ class S400Coordinator:
         self.state = ScaleState()
         self.persons: dict[int, Person] = {}
         self.person_measurements: dict[str, Measurement] = {}
+        # Weight sensors restored after a restart, for matching weigh-ins nobody was identified for.
+        self.restored_weights: dict[str, float] = {}
         self._listeners: list[Callable[[], None]] = []
         self._unsub: list[CALLBACK_TYPE] = []
         self._task: asyncio.Task | None = None
@@ -411,6 +414,8 @@ class S400Coordinator:
             raw_fields=event.fields,
         )
         person = self.persons.get(event.profile_id) if event.profile_id is not None else None
+        if person is None:
+            person = self._person_by_weight(event.weight_kg)
         impedance = event.impedance_ohm or event.impedance_low_ohm
         if person and impedance:
             try:
@@ -441,6 +446,20 @@ class S400Coordinator:
         measurement.awaiting_stored = True
         self._pending_event = (measurement, person)
         self._pending_handle = self.hass.loop.call_later(HEART_RATE_WAIT, self._fire_pending)
+
+    def _person_by_weight(self, weight_kg: float) -> Person | None:
+        """The only person whose last known weight is close to this one, if there is exactly one."""
+        close = [
+            person
+            for person in self.persons.values()
+            if (last := self._last_weight(person)) is not None and abs(last - weight_kg) <= WEIGHT_MATCH_KG
+        ]
+        return close[0] if len(close) == 1 else None
+
+    def _last_weight(self, person: Person) -> float | None:
+        if (m := self.person_measurements.get(person.subentry_id)) is not None and m.weight_kg is not None:
+            return m.weight_kg
+        return self.restored_weights.get(person.subentry_id)
 
     @callback
     def _check_heart_rate(self, data: bytes) -> None:

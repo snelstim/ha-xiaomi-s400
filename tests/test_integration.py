@@ -27,8 +27,8 @@ from .fake_scale import FakeScale
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 TOKEN_HEX = "00112233445566778899aabb"
-FINAL_ASIA = "0,0,2,612,1,2,1760607000," + ",".join(["0"] * 23) + ",5650,5120"
-FINAL_DAVE = "0,0,1,909,1,2,1760607100," + ",".join(["0"] * 23) + ",4890,4413"
+FINAL_ASIA = "0,2,1,612,1,2,1760607000," + ",".join(["0"] * 23) + ",5650,5120"
+FINAL_DAVE = "0,1,1,909,1,2,1760607100," + ",".join(["0"] * 23) + ",4890,4413"
 
 
 @pytest.fixture(autouse=True)
@@ -530,4 +530,30 @@ async def test_after_mode_hears_weigh_in_via_any_radio(hass: HomeAssistant) -> N
         heard = [radio("hci0", 0), radio("proxy", 7)]  # only the proxy caught the weigh-in frame
         coordinator._async_poll_scanners()
         assert coordinator._read_due is not None and coordinator._read_due > _t.monotonic()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_unidentified_weigh_in_matched_by_weight(hass: HomeAssistant) -> None:
+    entry = _entry([("Dave", 1, "male"), ("Asia", 2, "female")])
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator._last_session_end = 10**12
+    dave_sub = next(s for s in entry.subentries.values() if s.title == "Dave").subentry_id
+    asia_sub = next(s for s in entry.subentries.values() if s.title == "Asia").subentry_id
+    coordinator.restored_weights = {dave_sub: 91.0, asia_sub: 60.0}
+
+    from custom_components.xiaomi_s400.s400 import parse_payload
+
+    from .fake_scale import csv_plaintext
+
+    tail = "," + ",".join(["0"] * 23) + ",5650,5120"
+    coordinator._handle_final(parse_payload(csv_plaintext("0,0,1,612,0,2,1760607000" + tail)))
+    assert set(coordinator.person_measurements) == {asia_sub}
+
+    # Nobody within range: assigned to no one.
+    coordinator._handle_final(parse_payload(csv_plaintext("0,0,1,750,0,2,1760607100" + tail)))
+    assert coordinator.person_measurements[asia_sub].weight_kg == pytest.approx(61.2)
+    assert dave_sub not in coordinator.person_measurements
     assert await hass.config_entries.async_unload(entry.entry_id)

@@ -22,7 +22,7 @@ from custom_components.xiaomi_s400.s400.offline import build_request, parse_reco
 from .fake_scale import FakeScale, csv_plaintext
 
 TOKEN = bytes.fromhex("00112233445566778899aabb")
-FINAL_CSV = "0,0,2,905,1,2,1760607000," + ",".join(["0"] * 23) + ",4890,4413"
+FINAL_CSV = "0,2,1,905,1,2,1760607000," + ",".join(["0"] * 23) + ",4890,4413"
 
 
 def test_parse_live() -> None:
@@ -185,3 +185,11 @@ def test_scale_body_types() -> None:
     f = base.copy()
     f[22] = "9"
     assert "body_type_name" not in parse_records(",".join(f))[0].body  # unknown: left out, not guessed
+
+
+def test_parse_final_unidentified() -> None:
+    """A real frame from a weigh-in while connected: the user slot is 0, not the constant 1 after it."""
+    real = "0,0,1,821,0,2,1792830929," + ",".join(["0"] * 23) + ",4740,4280"
+    ev = parse_payload(csv_plaintext(real))
+    assert ev.profile_id is None
+    assert ev.weight_kg == pytest.approx(82.1)
