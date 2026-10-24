@@ -184,7 +184,7 @@ Please attach a debug log when reporting issues.
 **Known gaps**
 
 - Only the S400 (`yunmai.scales.ms104`) on firmware `2.1.1_0006` has been tested.
-- **Body type** in after-weigh-in mode is the scale's own value, named as in Xiaomi Home's chart: Lean, Underweight, Invisibly obese, Slim & muscular, Slim, Fit, Muscular, Overweight, Athletic and Obese. The scale sends these as −5 to 4. The table comes from the Xiaomi Home plugin for this scale (v31) and is confirmed for Obese. In live mode, body type is the formula's estimate, using the older Mi Fit names.
+- **Body type** in after-weigh-in mode is the scale's own value, named as in Xiaomi Home's chart: Lean, Underweight, Invisibly obese, Slim & muscular, Slim, Fit, Muscular, Overweight, Athletic and Obese. The scale sends these as −5 to 4. The table comes from the Xiaomi Home plugin for this scale (v31). In live mode, body type is the formula's estimate, using the older Mi Fit names.
 - The QR login is the only in-app login. Xiaomi's password login can require captchas and email codes, so use the extractor if QR login isn't possible.
 
 ## Credits
