@@ -19,5 +19,5 @@
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/snelstim/ha-xiaomi-s400/issues",
   "requirements": [],
-  "version": "0.5.1"
+  "version": "0.5.2"
 }

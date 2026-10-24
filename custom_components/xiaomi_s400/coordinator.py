@@ -512,6 +512,9 @@ class S400Coordinator:
                 and abs(last.measured_at.timestamp() - record.timestamp) < STORED_MATCH_WINDOW
             ):
                 last.body = {**last.body, **record.body}
+                if last.heart_rate is None and record.heart_rate is not None:
+                    last.heart_rate = record.heart_rate
+                    last.awaiting_heart_rate = False
                 continue
             # A weigh-in we didn't see live (e.g. Home Assistant was offline or out of range), or
             # every weigh-in in after-weigh-in mode.
@@ -543,9 +546,10 @@ class S400Coordinator:
             measured_at=dt_util.utc_from_timestamp(record.timestamp),
             body=dict(record.body),
             raw_fields=[str(v) for v in record.raw],
+            heart_rate=record.heart_rate,
         )
-        # The heart rate only comes in the broadcast, which arrives before we read the record.
-        if self._last_adv_hr and time.monotonic() - self._last_adv_hr[0] < HEART_RATE_MATCH_WINDOW:
+        # Fall back to the broadcast heart rate, which arrives before we read the record.
+        if measurement.heart_rate is None and self._last_adv_hr and time.monotonic() - self._last_adv_hr[0] < HEART_RATE_MATCH_WINDOW:
             if _same_weighing(self._last_adv_hr[1], measurement):
                 measurement.heart_rate = self._last_adv_hr[1].heart_rate
         return measurement

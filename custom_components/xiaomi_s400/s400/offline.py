@@ -4,7 +4,7 @@ The scale keeps every weigh-in (up to 160) until the Xiaomi app acknowledges it 
 end-of-reception (siid 9, aiid 2). We never send that, so the app still gets them.
 
 Records are separated by "_", each made of 33 comma-separated integers. Field map from
-https://community.home-assistant.io/t/662778 (firmware 2.1.1_0006). Unidentified: 3, 5, 6, 14, 17, 19, 20.
+https://community.home-assistant.io/t/662778 (firmware 2.1.1_0006). Field 5 is the heart rate (confirmed against the broadcast). Unidentified: 3, 6, 14, 17, 19, 20.
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .body import BODY_TYPE_NAMES
 from .miot import TYPE_UINT8, build_action
 
 SIID_OFFLINE = 9
@@ -22,6 +21,11 @@ EIID_COUNT = 2  # piid 3: number of records
 PIID_ONLY_UPLOAD_COUNT = 4
 
 RECORD_FIELDS = 33
+
+# The scale's body-type number -> name, as shown in Xiaomi Home's 11-type chart. Only confirmed
+# values are listed; others are reported as "type_<n>" until someone checks them against the app.
+SCALE_BODY_TYPES: dict[int, str] = {4: "obese"}
+SCALE_BODY_TYPE_MAX = 15
 
 
 def build_request(tid: int) -> bytes:
@@ -38,6 +42,7 @@ class StoredRecord:
     timestamp: int
     impedance_ohm: float | None
     impedance_low_ohm: float | None
+    heart_rate: int | None = None
     body: dict[str, Any] = field(default_factory=dict)
     raw: list[int] = field(default_factory=list)
 
@@ -75,10 +80,9 @@ def parse_record(text: str) -> StoredRecord | None:
     # Without impedance (socks) the scale only knows weight and BMI; drop the zeroed composition.
     if not f[31] and not f[32]:
         body = {"bmi": body["bmi"]} if f[15] else {}
-    elif 1 <= f[22] <= len(BODY_TYPE_NAMES):
-        # Assumes the scale uses the same 1-based order as the Mi Fit formulas; unverified.
+    elif 1 <= f[22] <= SCALE_BODY_TYPE_MAX:
         body["body_type"] = f[22]
-        body["body_type_name"] = BODY_TYPE_NAMES[f[22] - 1]
+        body["body_type_name"] = SCALE_BODY_TYPES.get(f[22], f"type_{f[22]}")
     body["source"] = "scale"
     return StoredRecord(
         index=f[0],
@@ -87,6 +91,7 @@ def parse_record(text: str) -> StoredRecord | None:
         timestamp=f[7],
         impedance_ohm=_div10(f[31]) if f[31] else None,
         impedance_low_ohm=_div10(f[32]) if f[32] else None,
+        heart_rate=f[5] if 30 <= f[5] <= 230 else None,
         body=body,
         raw=f,
     )

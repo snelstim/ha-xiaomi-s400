@@ -236,7 +236,22 @@
           "balanced-muscular": "Zrównoważona umięśniona",
           "skinny": "Szczupła",
           "balanced-skinny": "Zrównoważona szczupła",
-          "skinny-muscular": "Szczupła umięśniona"
+          "skinny-muscular": "Szczupła umięśniona",
+          "type_1": "Typ 1",
+          "type_2": "Typ 2",
+          "type_3": "Typ 3",
+          "type_4": "Typ 4",
+          "type_5": "Typ 5",
+          "type_6": "Typ 6",
+          "type_7": "Typ 7",
+          "type_8": "Typ 8",
+          "type_9": "Typ 9",
+          "type_10": "Typ 10",
+          "type_11": "Typ 11",
+          "type_12": "Typ 12",
+          "type_13": "Typ 13",
+          "type_14": "Typ 14",
+          "type_15": "Typ 15"
         }
       },
       "body_score": {

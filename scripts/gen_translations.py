@@ -172,7 +172,10 @@ def build(lang: str) -> dict:
     for key, name in t["e"].items():
         platform = "binary_sensor" if key in BINARY else "sensor"
         entity[platform][key] = {"name": name}
-    entity["sensor"]["body_type"]["state"] = BODY_TYPES[lang]
+    entity["sensor"]["body_type"]["state"] = {
+        **BODY_TYPES[lang],
+        **{f"type_{n}": ("Typ" if lang == "pl" else "Type") + f" {n}" for n in range(1, 16)},
+    }
     return {
         "config": {
             "flow_title": t["flow_title"],

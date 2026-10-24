@@ -131,7 +131,8 @@ def test_parse_records() -> None:
     assert r.body["fat_mass_kg"] == 15.0
     assert r.body["bmr_kcal_day"] == 1666
     assert r.body["body_score"] == 82
-    assert r.body["body_type_name"] == "lack-exercise"
+    assert r.body["body_type_name"] == "obese"  # 4, confirmed against Xiaomi Home
+    assert r.heart_rate is None  # field 5 is 0 in this record
     assert records[1].impedance_ohm is None
     assert "fat_percent" not in records[1].body
 
@@ -154,3 +155,17 @@ async def test_request_offline_data() -> None:
     # No end-of-reception (siid 9 aiid 2) was sent, so the scale keeps the records.
     assert len(scale.app_in) == 1
     assert (await session.next_event(1)).type == "live"
+
+
+def test_parse_real_record() -> None:
+    """A real S400 record (fw 2.1.1_0006, account id replaced), checked against Xiaomi Home and the broadcast."""
+    rec = parse_records(
+        "9,123456789,1,1,1027,85,0,1792800837,308,673,471,38,18,177,349,317,700,-116,-327,-211,9,1906,4,38,75,"
+        "655,37,316,711,483,182,4895,4447"
+    )[0]
+    assert (rec.user, rec.weight_kg, rec.heart_rate) == (1, 102.7, 85)
+    assert (rec.impedance_ohm, rec.impedance_low_ohm) == (489.5, 444.7)
+    b = rec.body
+    assert (b["fat_percent"], b["fat_mass_kg"], b["muscle_mass_kg"], b["body_score"]) == (30.8, 31.6, 67.3, 75)
+    assert (b["bmi"], b["bmr_kcal_day"], b["metabolic_age_years"], b["visceral_fat"]) == (31.7, 1906, 38, 18)
+    assert b["body_type_name"] == "obese"

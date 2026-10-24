@@ -13,7 +13,7 @@ It talks to the scale over a logged-in Bluetooth connection instead of only list
 - **One device per person.** Each weigh-in goes to the person whose scale profile it was, with no mixing between people.
 - **Body composition from the scale itself** (after-weigh-in mode): fat, muscle, water, protein, bone, visceral fat, BMR, metabolic age, body type, body score and fat mass. These are the values the Xiaomi app shows.
 - **Missed weigh-ins are backfilled.** The scale keeps its weigh-ins in memory, so ones taken while Home Assistant was offline or out of range are picked up later.
-- **Heart rate** (after-weigh-in mode, needs the BLE key).
+- **Heart rate** (after-weigh-in mode), read from the scale's stored weigh-in.
 - **No command line needed.** Log in with the Xiaomi Home app by scanning a QR code during setup, and the scale's keys are fetched automatically.
 - **Link people to Home Assistant users**, so automations know whom to notify.
 - An event on every weigh-in, for automations.
@@ -25,8 +25,8 @@ It talks to the scale over a logged-in Bluetooth connection instead of only list
 | Per-person entities | needs extra integrations and templates | built in |
 | Body composition | weight and impedance only | the scale's own values (after-weigh-in mode) or a formula estimate (live mode) |
 | Weigh-ins while HA was offline | lost | backfilled from the scale's memory |
-| Heart rate | yes | yes, in after-weigh-in mode with the BLE key |
-| Keys needed | BLE key | login token, plus the BLE key for heart rate |
+| Heart rate | yes | yes, in after-weigh-in mode |
+| Keys needed | BLE key | login token (the BLE key is optional, see [Modes](#modes)) |
 
 ## Requirements
 
@@ -80,12 +80,16 @@ The scale only stores its own evaluation of a weigh-in (body composition, body s
 | Result appears | as soon as the weight is stable | about 12 s after the scale finishes |
 | Body composition | formula estimate from weight, impedance and profile | **the scale's own values**, the same as the Xiaomi app |
 | Body score, fat mass | ❌ | ✅ |
-| Heart rate | ❌ in practice | ✅ (needs the BLE key) |
+| Heart rate | ❌ in practice | ✅ from the stored weigh-in; the BLE key adds the broadcast as a backup |
 | Bluetooth connection slot | busy all the time | a few seconds per weigh-in |
 
 **After weigh-in** mode stays disconnected. It watches the scale's broadcasts, and when their frame counter changes (someone is weighing in), it connects about 12 s after the last change, reads the stored weigh-in and disconnects again.
 
 It checks what **every** Bluetooth radio heard, once a second. Home Assistant itself forwards a device's broadcasts from only one radio, and only switches radios when another hears the device more than 16 dB louder. So a proxy right next to the scale would otherwise be ignored in favour of a weaker adapter that misses the short weigh-in broadcasts.
+
+This mode is recommended, and it has been confirmed end to end on firmware `2.1.1_0006` with an ESPHome proxy next to the scale.
+
+With a **BLE key** set, the weigh-in broadcast is also decrypted. That gives a moving *Live weight* in this mode and a backup heart rate. Without the key, weigh-ins are still detected, from the broadcast's unencrypted frame counter.
 
 The Xiaomi Home app on a phone nearby can sync and delete the stored weigh-in first. If that happens, the weigh-in is lost to Home Assistant in this mode. Keep the phone's Bluetooth off, or the app closed, while weighing, and open the app afterwards; it still gets the weigh-in, because Home Assistant never deletes it.
 
@@ -180,7 +184,7 @@ Please attach a debug log when reporting issues.
 **Known gaps**
 
 - Only the S400 (`yunmai.scales.ms104`) on firmware `2.1.1_0006` has been tested.
-- After-weigh-in mode follows the method described in the community thread; it is new here and not yet confirmed across firmware versions.
+- **Body type** in after-weigh-in mode is the scale's own value, which Xiaomi Home shows on an 11-type chart (Athletic, Muscular, Fit, Slim, Lean, Obese, …). Only `4 = Obese` is confirmed so far; other values show as *Type N*. If you see one, please [open an issue](https://github.com/snelstim/ha-xiaomi-s400/issues) with the number and the type Xiaomi Home shows for the same weigh-in. In live mode, body type is the formula's estimate, using the older Mi Fit names.
 - The body-type names for the scale's own body-type values are assumed to follow the Mi Fit order. This is unverified.
 - The QR login is the only in-app login. Xiaomi's password login can require captchas and email codes, so use the extractor if QR login isn't possible.
 
